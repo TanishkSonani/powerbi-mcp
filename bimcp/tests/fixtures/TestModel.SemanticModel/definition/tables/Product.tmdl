@@ -1,0 +1,24 @@
+table Product
+	lineageTag: 00000007-0000-0000-0000-000000000007
+
+	column ProductKey
+		dataType: string
+		lineageTag: 00000008-0000-0000-0000-000000000008
+		sourceColumn: ProductKey
+
+	column ProductName
+		dataType: string
+		lineageTag: 00000009-0000-0000-0000-000000000009
+		sourceColumn: ProductName
+
+	partition Product-Product
+		mode: import
+		source
+			type: m
+			expression
+				let
+					Source = Table.FromRows({})
+				in
+					Source
+
+	annotation PBI_ResultType = Table

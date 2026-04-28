@@ -1,0 +1,363 @@
+"""
+TMDL parser — pure Python, no external dependencies.
+
+Parses .tmdl files into the Python dataclasses defined in models.py.
+Handles:
+  - database.tmdl  → DatabaseInfo
+  - model.tmdl     → ModelInfo
+  - tables/*.tmdl  → Table  (with Column, Measure, raw partition/annotation blocks)
+  - relationships.tmdl → list[Relationship]
+
+Indentation rules (TMDL uses hard tabs):
+  indent 0  → top-level object declaration (table, database, model, relationship)
+  indent 1  → table-level sub-objects (column, measure, partition, annotation)
+              and table-level scalar properties (lineageTag, isHidden, description)
+  indent 2  → sub-object properties (dataType, lineageTag, formatString, ...)
+  indent 3+ → expression content for multi-line DAX or M code
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from uuid import uuid4
+
+from src.tmdl.models import (
+    Column, DatabaseInfo, Measure, ModelInfo, Relationship, Table,
+)
+
+_MEASURE_RE = re.compile(r"^measure\s+('(?:[^'\\]|\\.)*'|\S+)\s*=\s*(.*)$")
+_COLUMN_RE  = re.compile(r"^column\s+('(?:[^'\\]|\\.)*'|\S+)$")
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip("\t"))
+
+
+def _strip_quotes(s: str) -> str:
+    s = s.strip()
+    if s.startswith("'") and s.endswith("'"):
+        return s[1:-1]
+    return s
+
+
+# ---------------------------------------------------------------------------
+# database.tmdl
+# ---------------------------------------------------------------------------
+
+def parse_database_file(path: Path) -> DatabaseInfo:
+    name = "Model"
+    compat = 1605
+    lineage = str(uuid4())
+
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.rstrip()
+        if line.startswith("database "):
+            name = line[9:].strip()
+        s = line.lstrip("\t")
+        if s.startswith("compatibilityLevel:"):
+            try:
+                compat = int(s[len("compatibilityLevel:"):].strip())
+            except ValueError:
+                pass
+        elif s.startswith("lineageTag:"):
+            lineage = s[len("lineageTag:"):].strip()
+
+    return DatabaseInfo(name=name, compatibility_level=compat, lineage_tag=lineage)
+
+
+# ---------------------------------------------------------------------------
+# model.tmdl
+# ---------------------------------------------------------------------------
+
+def parse_model_file(path: Path) -> ModelInfo:
+    lineage = str(uuid4())
+    culture = "en-US"
+
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        s = raw.lstrip("\t").rstrip()
+        if s.startswith("lineageTag:"):
+            lineage = s[len("lineageTag:"):].strip()
+        elif s.startswith("culture:"):
+            culture = s[len("culture:"):].strip()
+
+    return ModelInfo(lineage_tag=lineage, culture=culture)
+
+
+# ---------------------------------------------------------------------------
+# tables/*.tmdl
+# ---------------------------------------------------------------------------
+
+def parse_table_file(path: Path) -> Table:
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+
+    table_name = path.stem.replace("_", " ")  # fallback; overridden by header
+    lineage_tag = str(uuid4())
+    description: str | None = None
+    is_hidden = False
+    columns: list[Column] = []
+    measures: list[Measure] = []
+    raw_partition_parts: list[str] = []
+    raw_annotation_parts: list[str] = []
+
+    i = 0
+    n = len(lines)
+
+    # --- table header ---
+    if n > 0 and lines[0].startswith("table "):
+        table_name = _strip_quotes(lines[0][6:])
+        i = 1
+
+    # --- table body ---
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s = line.lstrip("\t").rstrip()
+
+        if not s or s.startswith("//"):
+            i += 1
+            continue
+
+        if ind == 1:
+            if s.startswith("lineageTag:"):
+                lineage_tag = s[len("lineageTag:"):].strip()
+                i += 1
+            elif s == "isHidden":
+                is_hidden = True
+                i += 1
+            elif s.startswith("description:"):
+                description = s[len("description:"):].strip()
+                i += 1
+            elif _COLUMN_RE.match(s):
+                col, i = _parse_column(lines, i, n)
+                columns.append(col)
+            elif s.startswith("measure "):
+                meas, i = _parse_measure(lines, i, n)
+                measures.append(meas)
+            elif s.startswith("partition ") or s == "partition":
+                raw, i = _collect_raw_block(lines, i, n, stop_indent=1)
+                raw_partition_parts.append(raw)
+            elif s.startswith("annotation "):
+                raw_annotation_parts.append(line)
+                i += 1
+            else:
+                i += 1
+        else:
+            i += 1
+
+    return Table(
+        name=table_name,
+        lineage_tag=lineage_tag,
+        description=description,
+        is_hidden=is_hidden,
+        columns=columns,
+        measures=measures,
+        _raw_partitions="\n".join(raw_partition_parts),
+        _raw_annotations="\n".join(raw_annotation_parts),
+    )
+
+
+def _parse_column(lines: list[str], i: int, n: int) -> tuple[Column, int]:
+    s = lines[i].lstrip("\t").rstrip()
+    m = _COLUMN_RE.match(s)
+    col_name = _strip_quotes(m.group(1)) if m else s[7:]
+
+    data_type = "string"
+    source_col: str | None = None
+    expression: str | None = None
+    fmt: str | None = None
+    desc: str | None = None
+    lineage = str(uuid4())
+    hidden = False
+    sort_by: str | None = None
+
+    i += 1
+    expr_lines: list[str] = []
+    in_expression = False
+
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s2 = line.lstrip("\t").rstrip()
+
+        if not s2:
+            i += 1
+            continue
+        if ind <= 1:          # end of column block
+            break
+
+        if in_expression:
+            if ind >= 3:
+                expr_lines.append(s2)
+                i += 1
+                continue
+            else:
+                in_expression = False
+                expression = "\n".join(expr_lines)
+
+        if s2.startswith("dataType:"):
+            data_type = s2[len("dataType:"):].strip()
+        elif s2.startswith("lineageTag:"):
+            lineage = s2[len("lineageTag:"):].strip()
+        elif s2.startswith("sourceColumn:"):
+            source_col = s2[len("sourceColumn:"):].strip()
+        elif s2.startswith("formatString:"):
+            fmt = s2[len("formatString:"):].strip()
+        elif s2.startswith("description:"):
+            desc = s2[len("description:"):].strip()
+        elif s2.startswith("sortByColumn:"):
+            sort_by = s2[len("sortByColumn:"):].strip()
+        elif s2 == "isHidden":
+            hidden = True
+        elif s2 == "expression" or s2.startswith("expression ="):
+            in_expression = True
+        i += 1
+
+    if in_expression and expr_lines:
+        expression = "\n".join(expr_lines)
+
+    return Column(
+        name=col_name, data_type=data_type, source_column=source_col,
+        expression=expression, format_string=fmt, description=desc,
+        lineage_tag=lineage, is_hidden=hidden, sort_by_column=sort_by,
+    ), i
+
+
+def _parse_measure(lines: list[str], i: int, n: int) -> tuple[Measure, int]:
+    raw_header = lines[i].lstrip("\t").rstrip()
+    m = _MEASURE_RE.match(raw_header)
+    if not m:
+        return Measure(name="Unknown", expression=""), i + 1
+
+    meas_name = _strip_quotes(m.group(1))
+    inline_expr = (m.group(2) or "").strip()
+
+    fmt: str | None = None
+    desc: str | None = None
+    folder: str | None = None
+    lineage = str(uuid4())
+    hidden = False
+    expr_lines: list[str] = []
+
+    i += 1
+
+    # --- multi-line expression: lines at indent 3 follow immediately ---
+    if not inline_expr:
+        while i < n:
+            line = lines[i]
+            ind = _indent(line)
+            s = line.lstrip("\t").rstrip()
+            if not s:
+                i += 1
+                continue
+            if ind <= 2:
+                break          # end of expression, now at properties
+            expr_lines.append(s)
+            i += 1
+
+    # --- measure properties at indent 2 ---
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s = line.lstrip("\t").rstrip()
+        if not s:
+            i += 1
+            continue
+        if ind <= 1:
+            break
+
+        if s.startswith("formatString:"):
+            fmt = s[len("formatString:"):].strip()
+        elif s.startswith("lineageTag:"):
+            lineage = s[len("lineageTag:"):].strip()
+        elif s.startswith("description:"):
+            desc = s[len("description:"):].strip()
+        elif s.startswith("displayFolder:"):
+            folder = s[len("displayFolder:"):].strip()
+        elif s == "isHidden":
+            hidden = True
+        i += 1
+
+    expression = "\n".join(expr_lines) if expr_lines else inline_expr
+
+    return Measure(
+        name=meas_name, expression=expression, format_string=fmt,
+        description=desc, display_folder=folder, lineage_tag=lineage,
+        is_hidden=hidden,
+    ), i
+
+
+def _collect_raw_block(lines: list[str], i: int, n: int, stop_indent: int) -> tuple[str, int]:
+    """Collect lines from i until the next line at indent ≤ stop_indent."""
+    collected = [lines[i]]
+    i += 1
+    while i < n:
+        line = lines[i]
+        s = line.lstrip("\t").rstrip()
+        ind = _indent(line)
+        if s and ind <= stop_indent:
+            break
+        collected.append(line)
+        i += 1
+    return "\n".join(collected), i
+
+
+# ---------------------------------------------------------------------------
+# relationships.tmdl
+# ---------------------------------------------------------------------------
+
+def parse_relationships_file(path: Path) -> list[Relationship]:
+    if not path.exists():
+        return []
+
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    results: list[Relationship] = []
+    current: dict | None = None
+
+    def _flush():
+        if current and current.get("fromTable"):
+            results.append(Relationship(
+                from_table=current.get("fromTable", ""),
+                from_column=current.get("fromColumn", ""),
+                to_table=current.get("toTable", ""),
+                to_column=current.get("toColumn", ""),
+                from_cardinality=current.get("fromCardinality", "many"),
+                to_cardinality=current.get("toCardinality", "one"),
+                is_active=current.get("isActive", True),
+                cross_filter_behavior=current.get("crossFilterBehavior"),
+                name=current.get("name"),
+            ))
+
+    for raw in lines:
+        line = raw.rstrip()
+        ind = _indent(line)
+        s = line.lstrip("\t")
+
+        if not s or s.startswith("//"):
+            continue
+
+        if ind == 0:
+            if s == "relationship" or s.startswith("relationship "):
+                _flush()
+                parts = s.split(None, 1)
+                current = {"name": parts[1] if len(parts) > 1 else None, "isActive": True}
+            else:
+                _flush()
+                current = None
+        elif ind == 1 and current is not None:
+            if ":" in s:
+                key, _, val = s.partition(":")
+                key, val = key.strip(), val.strip()
+                mapping = {
+                    "fromTable": "fromTable", "fromColumn": "fromColumn",
+                    "toTable": "toTable", "toColumn": "toColumn",
+                    "fromCardinality": "fromCardinality", "toCardinality": "toCardinality",
+                    "crossFilterBehavior": "crossFilterBehavior",
+                }
+                if key in mapping:
+                    current[mapping[key]] = val
+            elif s.strip() == "isActive = false":
+                current["isActive"] = False
+
+    _flush()
+    return results

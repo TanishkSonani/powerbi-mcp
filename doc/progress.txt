@@ -1,0 +1,13 @@
+ .gitignore (repo root) — excludes extension/, Python bytecode, venvs, IDEs, secrets, and Windows cruft.
+
+  src/discovery/port_finder.py — three-tier port discovery:
+  - find_desktop_port_files() reads msmdsrv.port.txt from the AnalysisServicesWorkspaces folder
+  - find_desktop_ports_via_netstat() cross-references tasklist + netstat as fallback
+  - probe_xmla_instance(port) POSTs a minimal XMLA Discover SOAP envelope and parses the model name from the response
+  - find_desktop_instances() combines all three, deduplicates, and returns [{model_name, port, connection_string}]
+
+  src/context/live_context.py — pure-Python XMLA HTTP client with _discover, _execute, _parse_xmla_rowset, _format_markdown_table, execute_dax,
+  get_model_info, push_measure, validate_expression, and close.
+
+  src/context/manager.py — updated with open_live_context(port, model_name), context_type property ('file'/'live'/None), and close_context() now calls
+  ctx.close() before clearing.

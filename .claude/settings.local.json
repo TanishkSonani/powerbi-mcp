@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show *)",
+      "Bash(py --version)",
+      "Bash(where python *)",
+      "Bash(where py *)",
+      "PowerShell(py *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($pyExe = \"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $pyExe -m pip show pip | Select-String \"Version\")",
+      "PowerShell($py = \"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip install \"mcp[cli]\" pyyaml pydantic psutil python-dotenv pytest pytest-asyncio --quiet 2>&1 | Select-String -NotMatch \"^$\" | Select-Object -Last 10)",
+      "PowerShell($py = \"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; Set-Location \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/test_phase1.py -v --tb=short 2>&1)",
+      "PowerShell($py = \"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; Set-Location \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/test_phase1.py -v 2>&1)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\" -Recurse | Where-Object { -not $_.PSIsContainer } | Select-Object @{N='Path';E={$_.FullName.Replace\\('C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\\\\',''\\)}} | Sort-Object Path)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\" -Recurse | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\('C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\\\\',''\\) })",
+      "PowerShell($py = \"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip install pythonnet --dry-run 2>&1 | Select-String -Pattern \"pythonnet|ERROR|No matching|Would install\")",
+      "PowerShell($py = \"$env:LOCALAPPDATA\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip index versions pythonnet 2>&1 | Select-Object -First 5; Write-Host \"---\"; Test-Path \"C:\\\\Program Files\\\\Microsoft Power BI Desktop\\\\bin\\\\Microsoft.AnalysisServices.Tabular.dll\")",
+      "PowerShell(& \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\" --version 2>&1)",
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; cd \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/test_phase2.py -v --tb=short 2>&1)",
+      "Bash(git *)",
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip install requests --quiet 2>&1 | Select-Object -Last 3)"
+    ]
+  }
+}
