@@ -1,5 +1,5 @@
 """
-powerbi-local-mcp — Phase 2: TMDL File Manipulation
+powerbi-local-mcp — Phase 3: Live Desktop Integration
 Universal local MCP server for Power BI modeling.
 Connectable from any MCP-compatible client (Claude Desktop, custom agents, IDEs).
 """
@@ -41,6 +41,17 @@ from src.tools.column_tools import (
 )
 from src.tools.relationship_tools import (
     create_relationship, delete_relationship, list_relationships,
+)
+
+# Phase 3 tools
+from src.tools.desktop_tools import (
+    connect_desktop, disconnect, discover_desktop, get_desktop_model_info,
+)
+from src.tools.dax_tools import execute_dax, push_measure_live, validate_measure
+
+# Phase 4 tools
+from src.tools.role_tools import (
+    add_rls_filter, create_role, delete_rls_filter, list_roles, update_role,
 )
 
 logging.basicConfig(
@@ -87,6 +98,21 @@ _TOOL_REGISTRY: dict[str, callable] = {
     "list_relationships":  list_relationships,
     "create_relationship": create_relationship,
     "delete_relationship": delete_relationship,
+    # Desktop (Phase 3) — 4 tools
+    "discover_desktop":       discover_desktop,
+    "connect_desktop":        connect_desktop,
+    "disconnect":             disconnect,
+    "get_desktop_model_info": get_desktop_model_info,
+    # DAX / live mutation (Phase 3) — 3 tools
+    "execute_dax":            execute_dax,
+    "validate_measure":       validate_measure,
+    "push_measure_live":      push_measure_live,
+    # RLS roles (Phase 4) — 5 tools
+    "list_roles":             list_roles,
+    "create_role":            create_role,
+    "update_role":            update_role,
+    "add_rls_filter":         add_rls_filter,
+    "delete_rls_filter":      delete_rls_filter,
 }
 
 # ---------------------------------------------------------------------------
@@ -201,6 +227,69 @@ _TOOLS: list[Tool] = [
         description="Remove a relationship by specifying both ends.",
         inputSchema={"type": "object", "properties": {"from_table": {**_STR}, "from_column": {**_STR}, "to_table": {**_STR}, "to_column": {**_STR}}, "required": ["from_table", "from_column", "to_table", "to_column"]},
     ),
+    # ---- Desktop (Phase 3) ----
+    Tool(
+        name="discover_desktop",
+        description="Scan for running Power BI Desktop instances and return their model names and ports.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="connect_desktop",
+        description="Connect to a running Power BI Desktop model via local XMLA. Specify model_name or port to disambiguate when multiple instances are open.",
+        inputSchema={"type": "object", "properties": {"model_name": {**_STR, "description": "Model name (case-insensitive)"}, "port": {"type": "integer", "description": "XMLA port number"}}},
+    ),
+    Tool(
+        name="disconnect",
+        description="Release the current context (file or live Desktop). Safe to call when no context is active.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="get_desktop_model_info",
+        description="Return live metadata from the connected Desktop model (tables, measure count, port). Requires connect_desktop first.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    # ---- DAX / live mutation (Phase 3) ----
+    Tool(
+        name="execute_dax",
+        description="Execute a DAX query against the live Desktop model and return results as a markdown table. Requires connect_desktop first.",
+        inputSchema={"type": "object", "properties": {"dax_query": {**_STR, "description": "DAX query to execute (e.g. EVALUATE ...)"}, "max_rows": {"type": "integer", "description": "Maximum rows to return (default 500)"}}, "required": ["dax_query"]},
+    ),
+    Tool(
+        name="validate_measure",
+        description="Validate a DAX expression against the live model. Returns {valid, result, error}. Requires connect_desktop first.",
+        inputSchema={"type": "object", "properties": {"table_name": {**_STR, "description": "Table context for the expression"}, "expression": {**_STR, "description": "DAX expression to validate"}}, "required": ["table_name", "expression"]},
+    ),
+    Tool(
+        name="push_measure_live",
+        description="Create or replace a measure in the live Desktop model without writing to disk. Changes are immediately visible in Power BI. Requires connect_desktop first.",
+        inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "name": {**_STR, "description": "Measure name"}, "expression": {**_STR, "description": "DAX expression"}, "format_string": {**_STR, "description": "Optional format string"}}, "required": ["table_name", "name", "expression"]},
+    ),
+    # ---- RLS Roles (Phase 4) ----
+    Tool(
+        name="list_roles",
+        description="List all RLS roles in the open model with their permission level and filter count.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="create_role",
+        description="Create a new RLS role. modelPermission values: Read, ReadRefresh, ReadExploreData, Admin.",
+        inputSchema={"type": "object", "properties": {"name": {**_STR, "description": "Role name"}, "model_permission": {**_STR, "description": "Read (default), ReadRefresh, ReadExploreData, or Admin"}}, "required": ["name"]},
+    ),
+    Tool(
+        name="update_role",
+        description="Rename a role or change its model permission level.",
+        inputSchema={"type": "object", "properties": {"role_name": {**_STR, "description": "Current role name"}, "new_name": {**_STR, "description": "New name (optional)"}, "model_permission": {**_STR, "description": "New permission level (optional)"}}, "required": ["role_name"]},
+    ),
+    Tool(
+        name="add_rls_filter",
+        description="Add or replace a row-level security DAX filter on a table for a role. Omit filter_expression to grant full table access within the role.",
+        inputSchema={"type": "object", "properties": {"role_name": {**_STR}, "table_name": {**_STR}, "filter_expression": {**_STR, "description": "DAX filter expression (optional — omit for full access)"}}, "required": ["role_name", "table_name"]},
+    ),
+    Tool(
+        name="delete_rls_filter",
+        description="Remove the row-level security filter for a specific table from a role.",
+        inputSchema={"type": "object", "properties": {"role_name": {**_STR}, "table_name": {**_STR}}, "required": ["role_name", "table_name"]},
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -261,7 +350,7 @@ async def call_tool(name: str, arguments: dict | None) -> list[TextContent]:
 # ---------------------------------------------------------------------------
 
 async def _run():
-    logger.info("powerbi-local-mcp starting (Phase 2 — TMDL File Manipulation)")
+    logger.info("powerbi-local-mcp starting (Phase 3 — Live Desktop Integration, 27 tools)")
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
             read_stream,

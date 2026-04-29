@@ -12,14 +12,16 @@ from pathlib import Path
 from typing import Optional, Union
 
 from src.context.live_context import LiveContext
+from src.context.ps_live_context import PsLiveContext
 from src.tmdl.models import DatabaseInfo, ModelInfo, TmdlModelState
 from src.tmdl.parser import (
     parse_database_file,
     parse_model_file,
     parse_relationships_file,
+    parse_roles_folder,
     parse_table_file,
 )
-from src.tmdl.writer import relationships_to_tmdl_text, table_to_tmdl_text
+from src.tmdl.writer import relationships_to_tmdl_text, role_to_tmdl_text, table_to_tmdl_text
 
 
 class FileContext:
@@ -62,6 +64,21 @@ class FileContext:
             rel_path.unlink()
             written.append(f"[deleted] {rel_path}")
 
+        # Write roles
+        roles_dir = self.definition_path / "roles"
+        if self.model_state.roles:
+            roles_dir.mkdir(exist_ok=True)
+            expected_role_files: set[Path] = set()
+            for role in self.model_state.roles.values():
+                role_path = roles_dir / f"{_safe_filename(role.name)}.tmdl"
+                expected_role_files.add(role_path)
+                role_path.write_text(role_to_tmdl_text(role), encoding="utf-8")
+                written.append(str(role_path))
+            for existing in roles_dir.glob("*.tmdl"):
+                if existing not in expected_role_files:
+                    existing.unlink()
+                    written.append(f"[deleted] {existing}")
+
         self.model_state._dirty = False
         return written
 
@@ -91,9 +108,18 @@ class ContextManager:
         self._active = FileContext(definition_path, model_state)
         return self._active
 
-    def open_live_context(self, port: int, model_name: str) -> LiveContext:
+    def open_live_context(
+        self,
+        port: int,
+        model_name: str,
+        catalog: str | None = None,
+    ) -> LiveContext | PsLiveContext:
         self.close_context()
-        self._active = LiveContext(port, model_name)
+        # If a catalog GUID is provided the instance is Desktop TCP — use PS bridge
+        if catalog is not None:
+            self._active = PsLiveContext(port, model_name, catalog)
+        else:
+            self._active = LiveContext(port, model_name)
         return self._active
 
     def get_active_context(self) -> Union[FileContext, LiveContext]:
@@ -108,7 +134,7 @@ class ContextManager:
     def context_type(self) -> str | None:
         if self._active is None:
             return None
-        if isinstance(self._active, LiveContext):
+        if isinstance(self._active, (LiveContext, PsLiveContext)):
             return "live"
         return "file"
 
@@ -148,10 +174,14 @@ def _load_tmdl_model(definition_path: Path) -> TmdlModelState:
         parse_relationships_file(rel_path) if rel_path.exists() else []
     )
 
+    roles_dir = definition_path / "roles"
+    roles = parse_roles_folder(roles_dir)
+
     return TmdlModelState(
         definition_path=definition_path,
         database=database,
         model_info=model_info,
         tables=tables,
         relationships=relationships,
+        roles=roles,
     )

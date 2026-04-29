@@ -112,9 +112,15 @@ def find_desktop_ports_via_netstat() -> list[int]:
 
 def probe_xmla_instance(port: int, timeout: float = 2.0) -> dict | None:
     """
-    POST a minimal XMLA Discover to localhost:{port}/xmla.
-    Returns {model_name, port, connection_string} or None on failure.
+    Probe a port for an Analysis Services instance.
+
+    Strategy:
+      1. HTTP SOAP  — works for Azure AS / SSAS configured in HTTP mode
+      2. PowerShell ADOMD.NET — works for Power BI Desktop embedded AS (TCP)
+
+    Returns {model_name, port, connection_string} or None.
     """
+    # --- try HTTP SOAP first ---
     url = f"http://localhost:{port}/xmla"
     try:
         resp = requests.post(
@@ -123,31 +129,32 @@ def probe_xmla_instance(port: int, timeout: float = 2.0) -> dict | None:
             headers={"Content-Type": "text/xml; charset=utf-8"},
             timeout=timeout,
         )
-    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-        return None
+        if resp.status_code == 200:
+            model_name = f"model@{port}"
+            try:
+                root = ET.fromstring(resp.text)
+                for elem in root.iter():
+                    local = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                    if local in ("DATABASE_ID", "CATALOG_NAME") and elem.text:
+                        model_name = elem.text.strip()
+                        break
+            except ET.ParseError:
+                pass
+            return {"model_name": model_name, "port": port, "connection_string": url}
     except Exception:
-        return None
-
-    if resp.status_code != 200:
-        return None
-
-    model_name = f"model@{port}"
-    try:
-        root = ET.fromstring(resp.text)
-        # XMLA responses nest data in rowset rows — search broadly
-        for elem in root.iter():
-            local = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-            if local in ("DATABASE_ID", "CATALOG_NAME") and elem.text:
-                model_name = elem.text.strip()
-                break
-    except ET.ParseError:
         pass
 
-    return {
-        "model_name": model_name,
-        "port": port,
-        "connection_string": url,
-    }
+    # --- fall back to PowerShell ADOMD.NET (Power BI Desktop TCP) ---
+    try:
+        from src.context.ps_adomd_bridge import probe_port as _ps_probe
+        result = _ps_probe(port, timeout=max(timeout * 2, 5.0))
+        if result:
+            result["connection_string"] = f"localhost:{port}"
+            return result
+    except Exception:
+        pass
+
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -269,7 +269,7 @@ class LiveContext:
                     "table": table_name,
                     "measure": name,
                 },
-                "definition": {
+                "measure": {
                     "name": name,
                     "expression": expression,
                     "formatString": format_string or "",

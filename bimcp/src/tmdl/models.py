@@ -78,6 +78,19 @@ class ModelInfo:
 
 
 @dataclass
+class RlsFilter:
+    table_name: str
+    filter_expression: str | None = None   # None = no row filter (full access)
+
+
+@dataclass
+class Role:
+    name: str
+    model_permission: str = "Read"         # Read | ReadRefresh | ReadExploreData | Admin
+    filters: list[RlsFilter] = field(default_factory=list)
+
+
+@dataclass
 class TmdlModelState:
     """Complete in-memory snapshot of a TMDL definition/ folder."""
     definition_path: Path
@@ -85,4 +98,5 @@ class TmdlModelState:
     model_info: ModelInfo = field(default_factory=ModelInfo)
     tables: dict[str, Table] = field(default_factory=dict)   # table_name → Table
     relationships: list[Relationship] = field(default_factory=list)
+    roles: dict[str, Role] = field(default_factory=dict)     # role_name → Role
     _dirty: bool = False

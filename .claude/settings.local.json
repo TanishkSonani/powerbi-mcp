@@ -19,7 +19,17 @@
       "PowerShell(& \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\" --version 2>&1)",
       "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; cd \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/test_phase2.py -v --tb=short 2>&1)",
       "Bash(git *)",
-      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip install requests --quiet 2>&1 | Select-Object -Last 3)"
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip install requests --quiet 2>&1 | Select-Object -Last 3)",
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; cd \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/test_phase2.py -v --tb=short 2>&1 | Select-Object -Last 8)",
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; cd \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/test_phase3.py -v --tb=short 2>&1)",
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; cd \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/ -v --tb=short 2>&1)",
+      "PowerShell($py = \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; cd \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\"; & $py -m pytest tests/ -v --tb=short 2>&1 | Select-Object -Last 12)",
+      "PowerShell(netstat *)",
+      "Bash(python tests/live_test.py)",
+      "Bash(python3 tests/live_test.py)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(& \"C:\\\\Users\\\\tanis\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\" \"C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\bimcp\\\\tests\\\\live_test.py\" 2>&1)",
+      "Bash(powershell -command \"Get-Content 'C:\\\\Users\\\\tanis\\\\OneDrive\\\\Desktop\\\\PBIMCP\\\\doc\\\\architecture-plan.md' -Tail 5\")"
     ]
   }
 }

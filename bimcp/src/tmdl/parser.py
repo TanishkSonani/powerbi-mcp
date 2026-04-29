@@ -23,7 +23,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from src.tmdl.models import (
-    Column, DatabaseInfo, Measure, ModelInfo, Relationship, Table,
+    Column, DatabaseInfo, Measure, ModelInfo, Relationship, Role, RlsFilter, Table,
 )
 
 _MEASURE_RE = re.compile(r"^measure\s+('(?:[^'\\]|\\.)*'|\S+)\s*=\s*(.*)$")
@@ -361,3 +361,110 @@ def parse_relationships_file(path: Path) -> list[Relationship]:
 
     _flush()
     return results
+
+
+# ---------------------------------------------------------------------------
+# roles/*.tmdl
+# ---------------------------------------------------------------------------
+
+def _collect_filter_expression(lines: list[str], i: int, n: int) -> tuple[str | None, int]:
+    """
+    Parse the optional filterExpression inside a tablePermission block.
+    Called with i pointing at the line AFTER the 'tablePermission' header.
+    Returns (expression_or_None, next_i).
+    """
+    expr_lines: list[str] = []
+    in_backtick_block = False
+
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s = line.lstrip("\t").rstrip()
+
+        if not s:
+            i += 1
+            continue
+
+        # End of tablePermission block — back at indent ≤ 1
+        if ind <= 1:
+            break
+
+        # Indent 2: look for filterExpression keyword
+        if ind == 2 and s.startswith("filterExpression:"):
+            after = s[len("filterExpression:"):].strip()
+            if after == "```":
+                # Multi-line backtick block: collect indent-3 lines until closing ```
+                in_backtick_block = True
+                i += 1
+                while i < n:
+                    bl = lines[i]
+                    bs = bl.lstrip("\t").rstrip()
+                    if bs == "```":
+                        i += 1
+                        break
+                    if _indent(bl) <= 1 and bs:
+                        break
+                    if bs:
+                        expr_lines.append(bs)
+                    i += 1
+                return "\n".join(expr_lines) if expr_lines else None, i
+            elif after:
+                # Inline expression
+                i += 1
+                return after, i
+            else:
+                i += 1
+                continue
+        i += 1
+
+    return None, i
+
+
+def parse_role_file(path: Path) -> Role:
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    n = len(lines)
+
+    role_name = path.stem.replace("_", " ")
+    model_permission = "Read"
+    filters: list[RlsFilter] = []
+
+    i = 0
+    if n > 0 and lines[0].startswith("role "):
+        role_name = _strip_quotes(lines[0][5:].strip())
+        i = 1
+
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s = line.lstrip("\t").rstrip()
+
+        if not s or s.startswith("//"):
+            i += 1
+            continue
+
+        if ind == 1:
+            if s.startswith("modelPermission:"):
+                model_permission = s[len("modelPermission:"):].strip()
+                i += 1
+            elif s.startswith("tablePermission "):
+                table_name = _strip_quotes(s[len("tablePermission "):].strip())
+                i += 1
+                expr, i = _collect_filter_expression(lines, i, n)
+                filters.append(RlsFilter(table_name=table_name, filter_expression=expr))
+            else:
+                i += 1
+        else:
+            i += 1
+
+    return Role(name=role_name, model_permission=model_permission, filters=filters)
+
+
+def parse_roles_folder(roles_dir: Path) -> dict[str, Role]:
+    if not roles_dir.exists():
+        return {}
+    roles: dict[str, Role] = {}
+    for tmdl_file in sorted(roles_dir.glob("*.tmdl")):
+        role = parse_role_file(tmdl_file)
+        if role.name:
+            roles[role.name] = role
+    return roles

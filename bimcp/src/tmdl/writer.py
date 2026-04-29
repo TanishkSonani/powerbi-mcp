@@ -10,7 +10,7 @@ Formatting conventions:
 
 from __future__ import annotations
 
-from src.tmdl.models import Column, Measure, Relationship, Table
+from src.tmdl.models import Column, Measure, Relationship, Role, Table
 
 
 def _quote(name: str) -> str:
@@ -139,3 +139,23 @@ def relationships_to_tmdl_text(relationships: list[Relationship]) -> str:
         blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks)
+
+
+# ---------------------------------------------------------------------------
+# Roles
+# ---------------------------------------------------------------------------
+
+def role_to_tmdl_text(role: Role) -> str:
+    parts: list[str] = [f"role {_quote(role.name)}"]
+    parts.append(f"\tmodelPermission: {role.model_permission}")
+
+    for f in role.filters:
+        parts.append("")
+        parts.append(f"\ttablePermission {_quote(f.table_name)}")
+        if f.filter_expression is not None:
+            parts.append("\t\tfilterExpression: ```")
+            for expr_line in f.filter_expression.split("\n"):
+                parts.append(f"\t\t\t{expr_line}")
+            parts.append("\t\t\t```")
+
+    return "\n".join(parts)

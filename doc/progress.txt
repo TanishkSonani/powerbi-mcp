@@ -11,3 +11,22 @@
 
   src/context/manager.py — updated with open_live_context(port, model_name), context_type property ('file'/'live'/None), and close_context() now calls
   ctx.close() before clearing.
+
+
+  
+● 45/45 pass. Phase 4 Prompt 1 is complete. Here's what was built:
+
+  Data model — RlsFilter and Role dataclasses added to models.py; TmdlModelState extended with roles: dict[str, Role].
+
+  Parser (parser.py) — parse_role_file handles the role header, modelPermission, and tablePermission blocks with both inline and backtick-delimited
+  filterExpression. parse_roles_folder globs roles/*.tmdl and returns the dict.
+
+  Writer (writer.py) — role_to_tmdl_text always uses the backtick-block form for filter expressions (avoids DAX quoting edge cases).
+
+  Context manager — _load_tmdl_model loads the roles/ folder; FileContext.save() writes/deletes role files keeping them in sync with the in-memory dict.
+
+  5 tools (role_tools.py) — list_roles, create_role, update_role, add_rls_filter, delete_rls_filter. All guard against LiveContext and return an error dict
+  (never raise) for context-type mismatches.
+
+  Tests — 10 tests covering create, add/delete filter, rename, permission update, save/reload roundtrip (with and without filter expression), and context
+  guard.
