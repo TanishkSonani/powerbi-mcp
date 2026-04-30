@@ -1,0 +1,5 @@
+relationship
+	fromTable: Sales
+	fromColumn: ProductKey
+	toTable: Product
+	toColumn: ProductKey

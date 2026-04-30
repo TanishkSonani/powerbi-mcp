@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Envelope xmlns="http://schemas.xmlsoap.org/soap/envelope/">
+  <Body>
+    <ExecuteResponse xmlns="urn:schemas-microsoft-com:xml-analysis">
+      <return>
+        <root xmlns="urn:schemas-microsoft-com:xml-analysis:rowset"
+              xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+          <xsd:schema targetNamespace="urn:schemas-microsoft-com:xml-analysis:rowset">
+            <xsd:element name="root">
+              <xsd:complexType>
+                <xsd:sequence>
+                  <xsd:element name="row" minOccurs="0" maxOccurs="unbounded">
+                    <xsd:complexType>
+                      <xsd:sequence>
+                        <xsd:element name="ProductKey" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="Amount" type="xsd:double" minOccurs="0"/>
+                      </xsd:sequence>
+                    </xsd:complexType>
+                  </xsd:element>
+                </xsd:sequence>
+              </xsd:complexType>
+            </xsd:element>
+          </xsd:schema>
+          <row xmlns="urn:schemas-microsoft-com:xml-analysis:rowset">
+            <ProductKey>K1</ProductKey>
+            <Amount>100.0</Amount>
+          </row>
+          <row xmlns="urn:schemas-microsoft-com:xml-analysis:rowset">
+            <ProductKey>K2</ProductKey>
+            <Amount>200.0</Amount>
+          </row>
+          <row xmlns="urn:schemas-microsoft-com:xml-analysis:rowset">
+            <ProductKey>K3</ProductKey>
+            <Amount>300.0</Amount>
+          </row>
+        </root>
+      </return>
+    </ExecuteResponse>
+  </Body>
+</Envelope>

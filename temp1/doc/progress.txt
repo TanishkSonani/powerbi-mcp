@@ -1,0 +1,95 @@
+ .gitignore (repo root) — excludes extension/, Python bytecode, venvs, IDEs, secrets, and Windows cruft.
+
+  src/discovery/port_finder.py — three-tier port discovery:
+  - find_desktop_port_files() reads msmdsrv.port.txt from the AnalysisServicesWorkspaces folder
+  - find_desktop_ports_via_netstat() cross-references tasklist + netstat as fallback
+  - probe_xmla_instance(port) POSTs a minimal XMLA Discover SOAP envelope and parses the model name from the response
+  - find_desktop_instances() combines all three, deduplicates, and returns [{model_name, port, connection_string}]
+
+  src/context/live_context.py — pure-Python XMLA HTTP client with _discover, _execute, _parse_xmla_rowset, _format_markdown_table, execute_dax,
+  get_model_info, push_measure, validate_expression, and close.
+
+  src/context/manager.py — updated with open_live_context(port, model_name), context_type property ('file'/'live'/None), and close_context() now calls
+  ctx.close() before clearing.
+
+
+  
+● 45/45 pass. Phase 4 Prompt 1 is complete. Here's what was built:
+
+  Data model — RlsFilter and Role dataclasses added to models.py; TmdlModelState extended with roles: dict[str, Role].
+
+  Parser (parser.py) — parse_role_file handles the role header, modelPermission, and tablePermission blocks with both inline and backtick-delimited
+  filterExpression. parse_roles_folder globs roles/*.tmdl and returns the dict.
+
+  Writer (writer.py) — role_to_tmdl_text always uses the backtick-block form for filter expressions (avoids DAX quoting edge cases).
+
+  Context manager — _load_tmdl_model loads the roles/ folder; FileContext.save() writes/deletes role files keeping them in sync with the in-memory dict.
+
+  5 tools (role_tools.py) — list_roles, create_role, update_role, add_rls_filter, delete_rls_filter. All guard against LiveContext and return an error dict
+  (never raise) for context-type mismatches.
+
+  Tests — 10 tests covering create, add/delete filter, rename, permission update, save/reload roundtrip (with and without filter expression), and context
+  guard.
+
+● Phase 4 Prompts 2-4 Complete. Here's what was built:
+
+  === Phase 4 Prompt 2: Cultures/Translations (3 tools) ===
+  
+  Data model — Translation and Culture dataclasses added to models.py; TmdlModelState extended with cultures: dict[str, Culture].
+  
+  Parser (parser.py) — parse_culture_file handles culture TMDL files with table/measure/column translation blocks.
+  parse_cultures_folder globs cultures/*.tmdl and returns the dict.
+  
+  Writer (writer.py) — culture_to_tmdl_text serializes cultures with proper indentation for table/measure/column translations.
+  
+  3 tools (culture_tools.py) — list_cultures, add_translation, bulk_add_translations.
+  All guard against LiveContext and return error dicts for context-type mismatches.
+  
+  === Phase 4 Prompt 3: UDFs (4 tools) ===
+  
+  Data model — UDF dataclass added to models.py with name, expression, return_type, description, parameters, lineage_tag.
+  TmdlModelState extended with udfs: dict[str, UDF].
+  
+  Parser (parser.py) — parse_expressions_file handles expressions.tmdl with expression blocks, parameters, and return types.
+  
+  Writer (writer.py) — udf_to_tmdl_text and expressions_to_tmdl_text serialize UDFs to TMDL format.
+  
+  4 tools (udf_tools.py) — list_udfs, create_udf, update_udf, delete_udf.
+  Validates return types (variant, string, int64, double, datetime, boolean) and parameter definitions.
+  
+  === Phase 4 Prompt 4: Calendar Column Groups (4 tools) ===
+  
+  Data model — CalendarColumnGroup dataclass added to models.py with name, column_name, table_name, time_unit, is_default.
+  TmdlModelState extended with calendar_groups: list[CalendarColumnGroup].
+  
+  Parser (parser.py) — extract_calendar_groups scans table annotations for calendar settings.
+  
+  Writer (writer.py) — calendar_group_annotation generates annotation lines for calendar groups.
+  
+  4 tools (calendar_tools.py) — list_calendars, create_calendar, update_calendar_column_group, delete_calendar.
+  Validates time units (Year, Quarter, Month, Day, Week, DayOfWeek, etc.) and table/column existence.
+  
+  === Context Manager Updates ===
+  
+  manager.py — Updated to load cultures, UDFs, and calendar groups on open.
+  FileContext.save() now writes cultures/ folder and expressions.tmdl.
+  
+  === Server Updates ===
+  
+  server.py — 43 total tools registered. Imports all new tool modules.
+  Tool schemas added for all 11 new tools with proper inputSchema definitions.
+  
+  === Tests ===
+  
+  test_phase4.py — 29 tests total covering:
+  - RLS roles (10 tests from Prompt 1)
+  - Cultures/translations (5 tests)
+  - UDFs (7 tests) 
+  - Calendar column groups (7 tests)
+  - Context guard validation for all tool categories
+  
+  === Summary ===
+  
+  Total tools: 43 (up from 32)
+  New tools added: 11 (3 culture + 4 UDF + 4 calendar)
+  All Phase 4 features implemented and tested.
