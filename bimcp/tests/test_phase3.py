@@ -24,7 +24,7 @@ SERVER_PY = str(Path(__file__).parent.parent / "server.py")
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "TestModel.SemanticModel"
 XMLA_DIR = Path(__file__).parent / "fixtures" / "xmla"
 
-EXPECTED_TOOL_COUNT = 32
+EXPECTED_TOOL_COUNT = 43
 
 # ---------------------------------------------------------------------------
 # Helpers shared by mocked direct tests (11-15)

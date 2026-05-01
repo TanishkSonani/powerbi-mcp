@@ -15,13 +15,22 @@ from src.context.live_context import LiveContext
 from src.context.ps_live_context import PsLiveContext
 from src.tmdl.models import DatabaseInfo, ModelInfo, TmdlModelState
 from src.tmdl.parser import (
+    extract_calendar_groups,
+    parse_cultures_folder,
     parse_database_file,
+    parse_expressions_file,
     parse_model_file,
     parse_relationships_file,
     parse_roles_folder,
     parse_table_file,
 )
-from src.tmdl.writer import relationships_to_tmdl_text, role_to_tmdl_text, table_to_tmdl_text
+from src.tmdl.writer import (
+    culture_to_tmdl_text,
+    expressions_to_tmdl_text,
+    relationships_to_tmdl_text,
+    role_to_tmdl_text,
+    table_to_tmdl_text,
+)
 
 
 class FileContext:
@@ -78,6 +87,33 @@ class FileContext:
                 if existing not in expected_role_files:
                     existing.unlink()
                     written.append(f"[deleted] {existing}")
+
+        # Write cultures
+        cultures_dir = self.definition_path / "cultures"
+        if self.model_state.cultures:
+            cultures_dir.mkdir(exist_ok=True)
+            expected_culture_files: set[Path] = set()
+            for culture in self.model_state.cultures.values():
+                culture_path = cultures_dir / f"{_safe_filename(culture.name)}.tmdl"
+                expected_culture_files.add(culture_path)
+                culture_path.write_text(culture_to_tmdl_text(culture), encoding="utf-8")
+                written.append(str(culture_path))
+            for existing in cultures_dir.glob("*.tmdl"):
+                if existing not in expected_culture_files:
+                    existing.unlink()
+                    written.append(f"[deleted] {existing}")
+
+        # Write expressions (UDFs)
+        expr_path = self.definition_path / "expressions.tmdl"
+        if self.model_state.udfs:
+            expr_path.write_text(
+                expressions_to_tmdl_text(self.model_state.udfs),
+                encoding="utf-8",
+            )
+            written.append(str(expr_path))
+        elif expr_path.exists():
+            expr_path.unlink()
+            written.append(f"[deleted] {expr_path}")
 
         self.model_state._dirty = False
         return written
@@ -177,6 +213,14 @@ def _load_tmdl_model(definition_path: Path) -> TmdlModelState:
     roles_dir = definition_path / "roles"
     roles = parse_roles_folder(roles_dir)
 
+    cultures_dir = definition_path / "cultures"
+    cultures = parse_cultures_folder(cultures_dir)
+
+    expr_path = definition_path / "expressions.tmdl"
+    udfs = parse_expressions_file(expr_path)
+
+    calendar_groups = extract_calendar_groups(tables)
+
     return TmdlModelState(
         definition_path=definition_path,
         database=database,
@@ -184,4 +228,7 @@ def _load_tmdl_model(definition_path: Path) -> TmdlModelState:
         tables=tables,
         relationships=relationships,
         roles=roles,
+        cultures=cultures,
+        udfs=udfs,
+        calendar_groups=calendar_groups,
     )

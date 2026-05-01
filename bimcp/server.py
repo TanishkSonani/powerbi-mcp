@@ -53,6 +53,15 @@ from src.tools.dax_tools import execute_dax, push_measure_live, validate_measure
 from src.tools.role_tools import (
     add_rls_filter, create_role, delete_rls_filter, list_roles, update_role,
 )
+from src.tools.culture_tools import (
+    add_translation, bulk_add_translations, list_cultures,
+)
+from src.tools.udf_tools import (
+    create_udf, delete_udf, list_udfs, update_udf,
+)
+from src.tools.calendar_tools import (
+    create_calendar, delete_calendar, list_calendars, update_calendar_column_group,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -113,6 +122,20 @@ _TOOL_REGISTRY: dict[str, callable] = {
     "update_role":            update_role,
     "add_rls_filter":         add_rls_filter,
     "delete_rls_filter":      delete_rls_filter,
+    # Cultures/Translations (Phase 4) — 3 tools
+    "list_cultures":          list_cultures,
+    "add_translation":        add_translation,
+    "bulk_add_translations":  bulk_add_translations,
+    # UDFs (Phase 4) — 4 tools
+    "list_udfs":              list_udfs,
+    "create_udf":             create_udf,
+    "update_udf":             update_udf,
+    "delete_udf":             delete_udf,
+    # Calendar column groups (Phase 4) — 4 tools
+    "list_calendars":         list_calendars,
+    "create_calendar":        create_calendar,
+    "update_calendar_column_group": update_calendar_column_group,
+    "delete_calendar":        delete_calendar,
 }
 
 # ---------------------------------------------------------------------------
@@ -290,6 +313,98 @@ _TOOLS: list[Tool] = [
         description="Remove the row-level security filter for a specific table from a role.",
         inputSchema={"type": "object", "properties": {"role_name": {**_STR}, "table_name": {**_STR}}, "required": ["role_name", "table_name"]},
     ),
+    # ---- Cultures/Translations (Phase 4) ----
+    Tool(
+        name="list_cultures",
+        description="List all cultures (languages) in the open model with their translation counts.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="add_translation",
+        description="Add or update a translation for a table, measure, or column. Use property_name: Caption, Description, or DisplayFolder.",
+        inputSchema={"type": "object", "properties": {
+            "culture_name": {**_STR, "description": "Culture code (e.g., 'fr-FR', 'de-DE')"},
+            "object_type": {**_STR, "description": "'Table', 'Measure', or 'Column'"},
+            "object_name": {**_STR, "description": "Name of the object to translate"},
+            "property_name": {**_STR, "description": "'Caption', 'Description', or 'DisplayFolder'"},
+            "translated_value": {**_STR, "description": "The translated text"},
+            "table_name": {**_STR, "description": "Parent table (required for Measure/Column)"},
+        }, "required": ["culture_name", "object_type", "object_name", "property_name", "translated_value"]},
+    ),
+    Tool(
+        name="bulk_add_translations",
+        description="Add multiple translations at once for a culture. Each translation needs object_type, object_name, property_name, translated_value, and optionally table_name.",
+        inputSchema={"type": "object", "properties": {
+            "culture_name": {**_STR, "description": "Culture code (e.g., 'fr-FR')"},
+            "translations": {"type": "array", "description": "Array of translation objects", "items": {"type": "object"}},
+        }, "required": ["culture_name", "translations"]},
+    ),
+    # ---- UDFs (Phase 4) ----
+    Tool(
+        name="list_udfs",
+        description="List all user-defined functions (UDFs) in the open model.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="create_udf",
+        description="Create a new user-defined function. Return types: variant, string, int64, double, datetime, boolean.",
+        inputSchema={"type": "object", "properties": {
+            "name": {**_STR, "description": "Function name"},
+            "expression": {**_STR, "description": "DAX expression body"},
+            "return_type": {**_STR, "description": "Return type (default: variant)"},
+            "description": {**_STR, "description": "Optional description"},
+            "parameters": {"type": "array", "description": "Optional parameter list [{name, type, description}]", "items": {"type": "object"}},
+        }, "required": ["name", "expression"]},
+    ),
+    Tool(
+        name="update_udf",
+        description="Update an existing user-defined function.",
+        inputSchema={"type": "object", "properties": {
+            "udf_name": {**_STR, "description": "Current UDF name"},
+            "new_name": {**_STR, "description": "New name (optional)"},
+            "new_expression": {**_STR, "description": "New DAX expression (optional)"},
+            "return_type": {**_STR, "description": "New return type (optional)"},
+            "description": {**_STR, "description": "New description (optional)"},
+            "parameters": {"type": "array", "description": "New parameters (optional, replaces existing)", "items": {"type": "object"}},
+        }, "required": ["udf_name"]},
+    ),
+    Tool(
+        name="delete_udf",
+        description="Delete a user-defined function.",
+        inputSchema={"type": "object", "properties": {"udf_name": {**_STR, "description": "UDF name to delete"}}, "required": ["udf_name"]},
+    ),
+    # ---- Calendar Column Groups (Phase 4) ----
+    Tool(
+        name="list_calendars",
+        description="List all calendar column groups in the open model for date hierarchies.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="create_calendar",
+        description="Create a calendar column group for date hierarchies. Valid time_unit: Year, Quarter, Month, Day, Week, DayOfWeek, DayOfYear, WeekOfYear, MonthOfYear, Hour, Minute, Second.",
+        inputSchema={"type": "object", "properties": {
+            "table_name": {**_STR, "description": "Table containing the date column"},
+            "column_name": {**_STR, "description": "Date column name"},
+            "time_unit": {**_STR, "description": "Time unit for the group"},
+            "name": {**_STR, "description": "Optional custom name (defaults to column_timeunit)"},
+            "is_default": {"type": "boolean", "description": "Whether this is the default group for the column"},
+        }, "required": ["table_name", "column_name", "time_unit"]},
+    ),
+    Tool(
+        name="update_calendar_column_group",
+        description="Update an existing calendar column group.",
+        inputSchema={"type": "object", "properties": {
+            "group_name": {**_STR, "description": "Current group name"},
+            "new_name": {**_STR, "description": "New name (optional)"},
+            "time_unit": {**_STR, "description": "New time unit (optional)"},
+            "is_default": {"type": "boolean", "description": "New default status (optional)"},
+        }, "required": ["group_name"]},
+    ),
+    Tool(
+        name="delete_calendar",
+        description="Delete a calendar column group.",
+        inputSchema={"type": "object", "properties": {"group_name": {**_STR, "description": "Group name to delete"}}, "required": ["group_name"]},
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -350,7 +465,7 @@ async def call_tool(name: str, arguments: dict | None) -> list[TextContent]:
 # ---------------------------------------------------------------------------
 
 async def _run():
-    logger.info("powerbi-local-mcp starting (Phase 3 — Live Desktop Integration, 27 tools)")
+    logger.info("powerbi-local-mcp starting (Phase 4 — Complete, 43 tools)")
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
             read_stream,

@@ -91,6 +91,44 @@ class Role:
 
 
 @dataclass
+class Translation:
+    """A single translated value for an object."""
+    object_type: str              # Table, Measure, Column, etc.
+    object_name: str              # Name of the object being translated
+    property_name: str            # Caption, Description, DisplayFolder
+    translated_value: str
+    table_name: Optional[str] = None  # Parent table for columns/measures
+
+
+@dataclass
+class Culture:
+    """A culture/language with its translations."""
+    name: str                     # e.g. 'fr-FR', 'de-DE'
+    translations: list[Translation] = field(default_factory=list)
+
+
+@dataclass
+class UDF:
+    """User-defined function (DAX expression)."""
+    name: str
+    expression: str
+    return_type: str = "variant"  # variant, string, int64, double, datetime, boolean
+    description: Optional[str] = None
+    parameters: list[dict] = field(default_factory=list)  # [{name, type, description}]
+    lineage_tag: str = field(default_factory=_new_guid)
+
+
+@dataclass
+class CalendarColumnGroup:
+    """Calendar column group for date hierarchies."""
+    name: str
+    column_name: str              # The date column this applies to
+    table_name: str
+    time_unit: str                # Year, Quarter, Month, Day, etc.
+    is_default: bool = False
+
+
+@dataclass
 class TmdlModelState:
     """Complete in-memory snapshot of a TMDL definition/ folder."""
     definition_path: Path
@@ -98,5 +136,10 @@ class TmdlModelState:
     model_info: ModelInfo = field(default_factory=ModelInfo)
     tables: dict[str, Table] = field(default_factory=dict)   # table_name → Table
     relationships: list[Relationship] = field(default_factory=list)
+    roles: dict[str, Role] = field(default_factory=dict)     # role_name → Role
+    cultures: dict[str, Culture] = field(default_factory=dict)  # culture_name → Culture
+    udfs: dict[str, UDF] = field(default_factory=dict)       # udf_name → UDF
+    calendar_groups: list[CalendarColumnGroup] = field(default_factory=list)
+    _dirty: bool = False
     roles: dict[str, Role] = field(default_factory=dict)     # role_name → Role
     _dirty: bool = False
