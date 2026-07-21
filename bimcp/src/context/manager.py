@@ -8,20 +8,32 @@ All tool mutations operate through whichever context is active.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional, Union
+
+logger = logging.getLogger(__name__)
 
 from src.context.live_context import LiveContext
 from src.context.ps_live_context import PsLiveContext
 from src.tmdl.models import DatabaseInfo, ModelInfo, TmdlModelState
 from src.tmdl.parser import (
+    extract_calendar_groups,
+    parse_cultures_folder,
     parse_database_file,
+    parse_expressions_file,
     parse_model_file,
     parse_relationships_file,
     parse_roles_folder,
     parse_table_file,
 )
-from src.tmdl.writer import relationships_to_tmdl_text, role_to_tmdl_text, table_to_tmdl_text
+from src.tmdl.writer import (
+    culture_to_tmdl_text,
+    expressions_to_tmdl_text,
+    relationships_to_tmdl_text,
+    role_to_tmdl_text,
+    table_to_tmdl_text,
+)
 
 
 class FileContext:
@@ -79,8 +91,53 @@ class FileContext:
                     existing.unlink()
                     written.append(f"[deleted] {existing}")
 
+        # Write cultures
+        cultures_dir = self.definition_path / "cultures"
+        if self.model_state.cultures:
+            cultures_dir.mkdir(exist_ok=True)
+            expected_culture_files: set[Path] = set()
+            for culture in self.model_state.cultures.values():
+                culture_path = cultures_dir / f"{_safe_filename(culture.name)}.tmdl"
+                expected_culture_files.add(culture_path)
+                culture_path.write_text(culture_to_tmdl_text(culture), encoding="utf-8")
+                written.append(str(culture_path))
+            for existing in cultures_dir.glob("*.tmdl"):
+                if existing not in expected_culture_files:
+                    existing.unlink()
+                    written.append(f"[deleted] {existing}")
+
+        # Write expressions (UDFs)
+        expr_path = self.definition_path / "expressions.tmdl"
+        if self.model_state.udfs:
+            expr_path.write_text(
+                expressions_to_tmdl_text(self.model_state.udfs),
+                encoding="utf-8",
+            )
+            written.append(str(expr_path))
+        elif expr_path.exists():
+            expr_path.unlink()
+            written.append(f"[deleted] {expr_path}")
+
         self.model_state._dirty = False
         return written
+
+    def close(self) -> None:
+        """Release the context.
+
+        FileContext holds no OS resources, but ContextManager.close_context()
+        calls close() on whatever is active. Without this method, disconnect(),
+        a second open_pbip_folder(), or connect_desktop() after open_pbip_folder()
+        all raised AttributeError: 'FileContext' object has no attribute 'close'.
+
+        Unsaved edits are intentionally NOT auto-saved here — dropping the context
+        discards them, which matches the explicit save_model contract. We only warn.
+        """
+        if getattr(self.model_state, "_dirty", False):
+            logger.warning(
+                "Closing model at %s with unsaved changes; call save_model() first "
+                "to persist them.",
+                self.definition_path,
+            )
 
 
 def _safe_filename(table_name: str) -> str:
@@ -139,9 +196,23 @@ class ContextManager:
         return "file"
 
     def close_context(self) -> None:
-        if self._active is not None:
-            self._active.close()
-        self._active = None
+        """Drop the active context.
+
+        Must never propagate an exception: close_context() runs at the top of every
+        open_file_context()/open_live_context(), so a raising close() previously left
+        self._active set and made EVERY subsequent open or disconnect fail with the
+        same error — wedging the server until restart. Clear the slot in `finally`
+        and log (never re-raise) any close failure.
+        """
+        active, self._active = self._active, None
+        if active is None:
+            return
+        try:
+            close = getattr(active, "close", None)
+            if callable(close):
+                close()
+        except Exception:
+            logger.warning("Error while closing active context", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +248,14 @@ def _load_tmdl_model(definition_path: Path) -> TmdlModelState:
     roles_dir = definition_path / "roles"
     roles = parse_roles_folder(roles_dir)
 
+    cultures_dir = definition_path / "cultures"
+    cultures = parse_cultures_folder(cultures_dir)
+
+    expr_path = definition_path / "expressions.tmdl"
+    udfs = parse_expressions_file(expr_path)
+
+    calendar_groups = extract_calendar_groups(tables)
+
     return TmdlModelState(
         definition_path=definition_path,
         database=database,
@@ -184,4 +263,7 @@ def _load_tmdl_model(definition_path: Path) -> TmdlModelState:
         tables=tables,
         relationships=relationships,
         roles=roles,
+        cultures=cultures,
+        udfs=udfs,
+        calendar_groups=calendar_groups,
     )

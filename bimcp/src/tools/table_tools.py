@@ -1,10 +1,14 @@
 """Table CRUD MCP tools."""
 
+from src.context import live_writer
 from src.context.manager import ContextManager
 from src.tmdl.models import Table
+from src.tools._live import live_target
 
 
 def list_tables() -> dict:
+    # Works in both contexts: FileContext parses TMDL from disk, PsLiveContext
+    # materialises the same TmdlModelState from the live engine.
     ctx = ContextManager.get().get_active_context()
     return {
         "tables": [
@@ -57,6 +61,18 @@ def get_table(table_name: str) -> dict:
 
 
 def create_table(name: str, description: str | None = None) -> dict:
+    lc = live_target()
+    if lc is not None:
+        # A live table needs a data source (partition). Creating an empty shell in a
+        # running model produces an unusable table, so require the file path instead.
+        return {
+            "error": (
+                "Creating a table in a LIVE model isn't supported: a table needs a "
+                "partition (Power Query or calculated) to hold data, which must be "
+                "authored in Power BI Desktop. Add the table there, or build it in the "
+                "saved model with open_pbip_folder + save_model."
+            )
+        }
     ctx = ContextManager.get().get_active_context()
     if name in ctx.model_state.tables:
         raise ValueError(f"Table '{name}' already exists.")
@@ -74,6 +90,12 @@ def update_table(
     new_name: str | None = None,
     description: str | None = None,
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.update_table(
+            lc.port, lc.catalog, table_name,
+            new_name=new_name, description=description,
+        )
     ctx = ContextManager.get().get_active_context()
     t = ctx.model_state.tables.get(table_name)
     if t is None:
@@ -92,6 +114,9 @@ def update_table(
 
 
 def delete_table(table_name: str) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.delete_table(lc.port, lc.catalog, table_name)
     ctx = ContextManager.get().get_active_context()
     if table_name not in ctx.model_state.tables:
         raise ValueError(

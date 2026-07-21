@@ -23,7 +23,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from src.tmdl.models import (
-    Column, DatabaseInfo, Measure, ModelInfo, Relationship, Role, RlsFilter, Table,
+    CalendarColumnGroup, Column, Culture, DatabaseInfo, Measure, ModelInfo,
+    Relationship, Role, RlsFilter, Table, Translation, UDF,
 )
 
 _MEASURE_RE = re.compile(r"^measure\s+('(?:[^'\\]|\\.)*'|\S+)\s*=\s*(.*)$")
@@ -306,6 +307,39 @@ def _collect_raw_block(lines: list[str], i: int, n: int, stop_indent: int) -> tu
 # relationships.tmdl
 # ---------------------------------------------------------------------------
 
+def _split_dotted_ref(value: str) -> tuple[str, str]:
+    """
+    Split a TMDL dotted reference `Table.Column` into its two parts.
+
+    Identifiers are single-quoted when they contain spaces or dots, so a naive
+    split(".") corrupts names like `'Sales.2024'.'Net Amount'`. Parse the first
+    identifier explicitly (quoted or bare), then take the remainder as the second.
+    Embedded quotes are escaped by doubling ('') in TMDL.
+    """
+    v = value.strip()
+    if v.startswith("'"):
+        i, buf = 1, []
+        while i < len(v):
+            if v[i] == "'":
+                if i + 1 < len(v) and v[i + 1] == "'":   # escaped quote
+                    buf.append("'")
+                    i += 2
+                    continue
+                i += 1
+                break
+            buf.append(v[i])
+            i += 1
+        first = "".join(buf)
+        rest = v[i:].lstrip()
+        rest = rest[1:] if rest.startswith(".") else rest
+    else:
+        first, _, rest = v.partition(".")     # bare names cannot contain dots
+    rest = rest.strip()
+    if rest.startswith("'") and rest.endswith("'") and len(rest) >= 2:
+        rest = rest[1:-1].replace("''", "'")
+    return first.strip(), rest
+
+
 def parse_relationships_file(path: Path) -> list[Relationship]:
     if not path.exists():
         return []
@@ -348,15 +382,33 @@ def parse_relationships_file(path: Path) -> list[Relationship]:
             if ":" in s:
                 key, _, val = s.partition(":")
                 key, val = key.strip(), val.strip()
+
+                # Real TMDL writes a DOTTED reference — `fromColumn: Table.Column` —
+                # and emits no separate fromTable/toTable lines. Handling only the
+                # split form meant `fromTable` was never set, so _flush() silently
+                # dropped EVERY relationship (Power BI's own exports included).
+                if key in ("fromColumn", "toColumn") and "." in val:
+                    tbl, col = _split_dotted_ref(val)
+                    side = "from" if key == "fromColumn" else "to"
+                    current[f"{side}Table"] = tbl
+                    current[f"{side}Column"] = col
+                    continue
+
                 mapping = {
                     "fromTable": "fromTable", "fromColumn": "fromColumn",
                     "toTable": "toTable", "toColumn": "toColumn",
                     "fromCardinality": "fromCardinality", "toCardinality": "toCardinality",
+                    # TMDL spells it `crossFilteringBehavior`; the original key was a typo.
+                    "crossFilteringBehavior": "crossFilterBehavior",
                     "crossFilterBehavior": "crossFilterBehavior",
                 }
                 if key in mapping:
                     current[mapping[key]] = val
-            elif s.strip() == "isActive = false":
+                elif key == "isActive":
+                    # `isActive: false` is the real form; the old code only matched
+                    # `isActive = false`, so inactive relationships parsed as active.
+                    current["isActive"] = val.strip().lower() not in ("false", "0")
+            elif s.strip() in ("isActive = false", "isActive: false"):
                 current["isActive"] = False
 
     _flush()
@@ -468,3 +520,237 @@ def parse_roles_folder(roles_dir: Path) -> dict[str, Role]:
         if role.name:
             roles[role.name] = role
     return roles
+
+
+# ---------------------------------------------------------------------------
+# cultures/*.tmdl — Translations
+# ---------------------------------------------------------------------------
+
+def parse_culture_file(path: Path) -> Culture:
+    """Parse a culture TMDL file (e.g., cultures/fr-FR.tmdl)."""
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    n = len(lines)
+
+    # Culture name from filename (e.g., fr-FR.tmdl -> fr-FR)
+    culture_name = path.stem
+    translations: list[Translation] = []
+
+    i = 0
+    # Check for culture header
+    if n > 0 and lines[0].startswith("culture "):
+        culture_name = _strip_quotes(lines[0][8:].strip())
+        i = 1
+
+    current_object_type: str | None = None
+    current_object_name: str | None = None
+    current_table: str | None = None
+
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s = line.lstrip("\t").rstrip()
+
+        if not s or s.startswith("//"):
+            i += 1
+            continue
+
+        # Indent 1: linguisticMetadata or table/measure/column translation blocks
+        if ind == 1:
+            if s.startswith("linguisticMetadata"):
+                # Skip linguistic metadata blocks
+                i += 1
+                while i < n and _indent(lines[i]) > 1:
+                    i += 1
+                continue
+            elif s.startswith("table "):
+                current_object_type = "Table"
+                current_object_name = _strip_quotes(s[6:].strip())
+                current_table = current_object_name
+                i += 1
+            elif s.startswith("measure "):
+                current_object_type = "Measure"
+                current_object_name = _strip_quotes(s[8:].strip())
+                i += 1
+            elif s.startswith("column "):
+                current_object_type = "Column"
+                current_object_name = _strip_quotes(s[7:].strip())
+                i += 1
+            else:
+                i += 1
+        elif ind == 2 and current_object_type and current_object_name:
+            # Translation properties: caption, description, displayFolder
+            if s.startswith("caption:"):
+                value = s[8:].strip()
+                translations.append(Translation(
+                    object_type=current_object_type,
+                    object_name=current_object_name,
+                    property_name="Caption",
+                    translated_value=value,
+                    table_name=current_table if current_object_type != "Table" else None,
+                ))
+            elif s.startswith("description:"):
+                value = s[12:].strip()
+                translations.append(Translation(
+                    object_type=current_object_type,
+                    object_name=current_object_name,
+                    property_name="Description",
+                    translated_value=value,
+                    table_name=current_table if current_object_type != "Table" else None,
+                ))
+            elif s.startswith("displayFolder:"):
+                value = s[14:].strip()
+                translations.append(Translation(
+                    object_type=current_object_type,
+                    object_name=current_object_name,
+                    property_name="DisplayFolder",
+                    translated_value=value,
+                    table_name=current_table if current_object_type != "Table" else None,
+                ))
+            i += 1
+        else:
+            i += 1
+
+    return Culture(name=culture_name, translations=translations)
+
+
+def parse_cultures_folder(cultures_dir: Path) -> dict[str, Culture]:
+    """Parse all culture files in the cultures/ folder."""
+    if not cultures_dir.exists():
+        return {}
+    cultures: dict[str, Culture] = {}
+    for tmdl_file in sorted(cultures_dir.glob("*.tmdl")):
+        culture = parse_culture_file(tmdl_file)
+        if culture.name:
+            cultures[culture.name] = culture
+    return cultures
+
+
+# ---------------------------------------------------------------------------
+# expressions.tmdl — User-defined functions (UDFs)
+# ---------------------------------------------------------------------------
+
+def parse_expressions_file(path: Path) -> dict[str, UDF]:
+    """Parse expressions.tmdl for user-defined functions."""
+    if not path.exists():
+        return {}
+
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    n = len(lines)
+    udfs: dict[str, UDF] = {}
+
+    i = 0
+    while i < n:
+        line = lines[i]
+        ind = _indent(line)
+        s = line.lstrip("\t").rstrip()
+
+        if not s or s.startswith("//"):
+            i += 1
+            continue
+
+        # Look for expression headers at indent 0
+        if ind == 0 and s.startswith("expression "):
+            udf_name = _strip_quotes(s[11:].strip().rstrip("=").strip())
+            expression_lines: list[str] = []
+            return_type = "variant"
+            description: str | None = None
+            parameters: list[dict] = []
+            lineage_tag = str(uuid4())
+
+            i += 1
+            # Collect expression body and properties
+            while i < n:
+                inner_line = lines[i]
+                inner_ind = _indent(inner_line)
+                inner_s = inner_line.lstrip("\t").rstrip()
+
+                if not inner_s:
+                    i += 1
+                    continue
+                if inner_ind == 0:
+                    break  # Next top-level item
+
+                if inner_ind == 1:
+                    if inner_s.startswith("returnType:"):
+                        return_type = inner_s[11:].strip()
+                    elif inner_s.startswith("lineageTag:"):
+                        lineage_tag = inner_s[11:].strip()
+                    elif inner_s.startswith("description:"):
+                        description = inner_s[12:].strip()
+                    elif inner_s.startswith("parameter "):
+                        # Parse parameter definition
+                        param_name = _strip_quotes(inner_s[10:].strip())
+                        param_type = "variant"
+                        param_desc: str | None = None
+                        i += 1
+                        while i < n and _indent(lines[i]) >= 2:
+                            param_line = lines[i].lstrip("\t").rstrip()
+                            if param_line.startswith("type:"):
+                                param_type = param_line[5:].strip()
+                            elif param_line.startswith("description:"):
+                                param_desc = param_line[12:].strip()
+                            i += 1
+                        parameters.append({
+                            "name": param_name,
+                            "type": param_type,
+                            "description": param_desc,
+                        })
+                        continue
+                    else:
+                        i += 1
+                        continue
+                elif inner_ind >= 2:
+                    # Expression body lines
+                    expression_lines.append(inner_s)
+                i += 1
+
+            udfs[udf_name] = UDF(
+                name=udf_name,
+                expression="\n".join(expression_lines),
+                return_type=return_type,
+                description=description,
+                parameters=parameters,
+                lineage_tag=lineage_tag,
+            )
+        else:
+            i += 1
+
+    return udfs
+
+
+# ---------------------------------------------------------------------------
+# Calendar column groups (from column annotations)
+# ---------------------------------------------------------------------------
+
+def extract_calendar_groups(tables: dict[str, Table]) -> list[CalendarColumnGroup]:
+    """Extract calendar column groups from table column annotations."""
+    groups: list[CalendarColumnGroup] = []
+
+    for table_name, table in tables.items():
+        for col in table.columns:
+            # Check raw annotations for calendar-related settings
+            if table._raw_annotations:
+                for ann_line in table._raw_annotations.splitlines():
+                    if "CalendarColumnGroup" in ann_line or "TimeUnit" in ann_line:
+                        # Parse annotation for calendar group
+                        # Format: annotation CalendarColumnGroup = {"TimeUnit": "Year", ...}
+                        if col.name in ann_line:
+                            time_unit = "Year"  # Default
+                            if "Month" in ann_line:
+                                time_unit = "Month"
+                            elif "Quarter" in ann_line:
+                                time_unit = "Quarter"
+                            elif "Day" in ann_line:
+                                time_unit = "Day"
+                            elif "Week" in ann_line:
+                                time_unit = "Week"
+
+                            groups.append(CalendarColumnGroup(
+                                name=f"{col.name}_{time_unit}",
+                                column_name=col.name,
+                                table_name=table_name,
+                                time_unit=time_unit,
+                                is_default=False,
+                            ))
+
+    return groups

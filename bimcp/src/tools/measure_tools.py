@@ -1,12 +1,15 @@
 """Measure CRUD MCP tools."""
 
+from src.context import live_writer
 from src.context.manager import ContextManager
 from src.tmdl.models import Measure
+from src.tools._live import live_target
 
 _EXPR_PREVIEW_LEN = 80
 
 
 def list_measures() -> dict:
+    # Works in both contexts (see table_tools.list_tables).
     ctx = ContextManager.get().get_active_context()
     measures = []
     for table_name, t in ctx.model_state.tables.items():
@@ -48,6 +51,13 @@ def create_measure(
     description: str | None = None,
     display_folder: str | None = None,
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.upsert_measure(
+            lc.port, lc.catalog, table_name, name, expression,
+            format_string=format_string, description=description,
+            display_folder=display_folder,
+        )
     ctx = ContextManager.get().get_active_context()
     t = _require_table(ctx, table_name)
     if any(m.name == name for m in t.measures):
@@ -74,6 +84,32 @@ def update_measure(
     description: str | None = None,
     display_folder: str | None = None,
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        # Read the current definition so unspecified fields keep their values
+        # (upsert replaces the measure body, so we must merge, not overwrite).
+        table = lc.model_state.tables.get(table_name)
+        current = next((m for m in table.measures if m.name == measure_name), None) if table else None
+        if current is None:
+            return {"error": f"Measure '{measure_name}' not found in table '{table_name}'."}
+
+        target_name = new_name or measure_name
+        res = live_writer.upsert_measure(
+            lc.port, lc.catalog, table_name, target_name,
+            new_expression if new_expression is not None else current.expression,
+            format_string=new_format_string if new_format_string is not None else current.format_string,
+            description=description if description is not None else current.description,
+            display_folder=display_folder if display_folder is not None else current.display_folder,
+        )
+        if "error" in res:
+            return res
+        # A rename is add-then-remove: TOM has no in-place rename.
+        if target_name != measure_name:
+            drop = live_writer.delete_measure(lc.port, lc.catalog, table_name, measure_name)
+            if "error" in drop:
+                return drop
+        return {"status": "updated", "applied": "live", "table": table_name, "measure": target_name}
+
     ctx = ContextManager.get().get_active_context()
     t = _require_table(ctx, table_name)
     m = _find_measure(t, measure_name)
@@ -96,6 +132,9 @@ def update_measure(
 
 
 def delete_measure(table_name: str, measure_name: str) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.delete_measure(lc.port, lc.catalog, table_name, measure_name)
     ctx = ContextManager.get().get_active_context()
     t = _require_table(ctx, table_name)
     before = len(t.measures)

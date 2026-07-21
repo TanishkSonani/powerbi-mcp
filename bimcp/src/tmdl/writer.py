@@ -10,7 +10,7 @@ Formatting conventions:
 
 from __future__ import annotations
 
-from src.tmdl.models import Column, Measure, Relationship, Role, Table
+from src.tmdl.models import CalendarColumnGroup, Column, Culture, Measure, Relationship, Role, Table, UDF
 
 
 def _quote(name: str) -> str:
@@ -159,3 +159,101 @@ def role_to_tmdl_text(role: Role) -> str:
             parts.append("\t\t\t```")
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Cultures (Translations)
+# ---------------------------------------------------------------------------
+
+def culture_to_tmdl_text(culture: Culture) -> str:
+    """Serialize a Culture to TMDL format."""
+    parts: list[str] = [f"culture {_quote(culture.name)}"]
+
+    # Group translations by object
+    current_table: str | None = None
+    current_object: tuple[str, str] | None = None  # (type, name)
+
+    for t in culture.translations:
+        # Handle table context changes
+        if t.object_type == "Table":
+            if current_table != t.object_name:
+                parts.append("")
+                parts.append(f"\ttable {_quote(t.object_name)}")
+                current_table = t.object_name
+                current_object = ("Table", t.object_name)
+        elif t.table_name and t.table_name != current_table:
+            parts.append("")
+            parts.append(f"\ttable {_quote(t.table_name)}")
+            current_table = t.table_name
+
+        # Handle object context changes within table
+        if t.object_type != "Table":
+            obj_key = (t.object_type, t.object_name)
+            if current_object != obj_key:
+                parts.append("")
+                if t.object_type == "Measure":
+                    parts.append(f"\t\tmeasure {_quote(t.object_name)}")
+                elif t.object_type == "Column":
+                    parts.append(f"\t\tcolumn {_quote(t.object_name)}")
+                current_object = obj_key
+
+        # Write the translation property
+        indent = "\t\t" if t.object_type == "Table" else "\t\t\t"
+        if t.property_name == "Caption":
+            parts.append(f"{indent}caption: {t.translated_value}")
+        elif t.property_name == "Description":
+            parts.append(f"{indent}description: {t.translated_value}")
+        elif t.property_name == "DisplayFolder":
+            parts.append(f"{indent}displayFolder: {t.translated_value}")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Expressions (UDFs)
+# ---------------------------------------------------------------------------
+
+def udf_to_tmdl_text(udf: UDF) -> str:
+    """Serialize a UDF to TMDL expression format."""
+    parts: list[str] = [f"expression {_quote(udf.name)} ="]
+
+    # Expression body (indented)
+    for expr_line in udf.expression.split("\n"):
+        parts.append(f"\t\t{expr_line}")
+
+    # Properties
+    parts.append(f"\treturnType: {udf.return_type}")
+    if udf.description:
+        parts.append(f"\tdescription: {udf.description}")
+
+    # Parameters
+    for param in udf.parameters:
+        parts.append(f"\tparameter {_quote(param['name'])}")
+        parts.append(f"\t\ttype: {param.get('type', 'variant')}")
+        if param.get("description"):
+            parts.append(f"\t\tdescription: {param['description']}")
+
+    parts.append(f"\tlineageTag: {udf.lineage_tag}")
+
+    return "\n".join(parts)
+
+
+def expressions_to_tmdl_text(udfs: dict[str, UDF]) -> str:
+    """Serialize all UDFs to a single expressions.tmdl file."""
+    if not udfs:
+        return ""
+    blocks = [udf_to_tmdl_text(udf) for udf in udfs.values()]
+    return "\n\n".join(blocks)
+
+
+# ---------------------------------------------------------------------------
+# Calendar Column Groups
+# ---------------------------------------------------------------------------
+
+def calendar_group_annotation(group: CalendarColumnGroup) -> str:
+    """Generate annotation line for a calendar column group."""
+    return (
+        f'\tannotation CalendarColumnGroup = '
+        f'{{"Column": "{group.column_name}", "TimeUnit": "{group.time_unit}", '
+        f'"IsDefault": {str(group.is_default).lower()}}}'
+    )

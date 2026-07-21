@@ -18,19 +18,78 @@ from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # DLL location
+#
+# The AdomdClient DLL ships inside the Power BI Desktop install, but the install
+# path differs by distribution:
+#   • Classic (MSI/exe): C:\\Program Files\\Microsoft Power BI Desktop\\bin
+#   • Store / MSIX:      C:\\Program Files\\WindowsApps\\Microsoft.MicrosoftPowerBIDesktop_<ver>_x64__8wekyb3d8bbwe\\bin
+# Hardcoding the classic path made discovery silently fail on Store installs:
+# Add-Type found no DLL, every probe returned null, and discover_desktop reported
+# zero instances even with Desktop running. Resolve the path dynamically instead.
 # ---------------------------------------------------------------------------
 
-_PBI_BIN = Path("C:/Program Files/Microsoft Power BI Desktop/bin")
-_ADOMD_DLL = _PBI_BIN / "Microsoft.PowerBI.AdomdClient.dll"
+_DLL_NAME = "Microsoft.PowerBI.AdomdClient.dll"
+_CLASSIC_BIN = Path("C:/Program Files/Microsoft Power BI Desktop/bin")
+_WINDOWSAPPS = Path("C:/Program Files/WindowsApps")
 
-_PS_HEADER = f"""
-$ErrorActionPreference = 'Continue'
-Add-Type -Path '{_ADOMD_DLL}' -ErrorAction SilentlyContinue
-"""
+_adomd_dll_cache: Path | None = None
+
+
+def _running_msmdsrv_bin() -> Path | None:
+    """bin/ folder of the running msmdsrv.exe — correct for any distribution."""
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NonInteractive", "-NoProfile", "-Command",
+             "(Get-Process msmdsrv -ErrorAction SilentlyContinue |"
+             " Select-Object -First 1 -ExpandProperty Path)"],
+            capture_output=True, text=True, timeout=15,
+        )
+        exe = result.stdout.strip()
+        return Path(exe).parent if exe else None
+    except Exception:
+        return None
+
+
+def _candidate_dlls():
+    """Yield candidate AdomdClient DLL paths, most reliable first."""
+    yield _CLASSIC_BIN / _DLL_NAME
+    bin_dir = _running_msmdsrv_bin()
+    if bin_dir is not None:
+        yield bin_dir / _DLL_NAME
+    # Best-effort: WindowsApps may be ACL-restricted for directory listing.
+    try:
+        yield from _WINDOWSAPPS.glob(f"Microsoft.MicrosoftPowerBIDesktop_*/bin/{_DLL_NAME}")
+    except Exception:
+        pass
+
+
+def find_adomd_dll() -> Path | None:
+    """Locate the AdomdClient DLL, caching the first hit that still exists."""
+    global _adomd_dll_cache
+    if _adomd_dll_cache is not None and _adomd_dll_cache.exists():
+        return _adomd_dll_cache
+    for cand in _candidate_dlls():
+        try:
+            if cand and cand.exists():
+                _adomd_dll_cache = cand
+                return cand
+        except Exception:
+            continue
+    return None
+
+
+def _ps_header() -> str:
+    dll = find_adomd_dll()
+    if dll is None:
+        return "$ErrorActionPreference = 'Continue'\n"
+    return (
+        "$ErrorActionPreference = 'Continue'\n"
+        f"Add-Type -Path '{dll}' -ErrorAction SilentlyContinue\n"
+    )
 
 
 def is_available() -> bool:
-    return _ADOMD_DLL.exists()
+    return find_adomd_dll() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +98,7 @@ def is_available() -> bool:
 
 def _run_ps(script: str, timeout: float = 30.0) -> object:
     """Execute a PowerShell script and parse its JSON stdout."""
-    full = _PS_HEADER + script
+    full = _ps_header() + script
     result = subprocess.run(
         ["powershell.exe", "-NonInteractive", "-NoProfile", "-Command", full],
         capture_output=True,
@@ -122,11 +181,76 @@ $conn.Close()
     return _run_ps(script)
 
 
+def list_tables(port: int, catalog: str) -> list[dict]:
+    """Return [{name, is_hidden, description}] for every table in the live model.
+
+    Results are wrapped in a parent object before ConvertTo-Json: PowerShell collapses
+    a single-element array into a bare object, which would break list parsing when the
+    model has exactly one table.
+    """
+    script = f"""
+$conn = New-Object Microsoft.AnalysisServices.AdomdClient.AdomdConnection("Data Source=localhost:{port};Initial Catalog={catalog}")
+$conn.Open()
+$ds = $conn.GetSchemaDataSet("TMSCHEMA_TABLES", $null)
+$out = @()
+foreach ($r in $ds.Tables[0].Rows) {{
+    $desc = if ($r['Description'] -is [System.DBNull]) {{ $null }} else {{ [string]$r['Description'] }}
+    $out += @{{ name = [string]$r['Name']; is_hidden = [bool]$r['IsHidden']; description = $desc }}
+}}
+$conn.Close()
+@{{ items = @($out) }} | ConvertTo-Json -Compress -Depth 4"""
+    data = _run_ps(script)
+    return data.get("items", []) if isinstance(data, dict) else []
+
+
+def list_measures(port: int, catalog: str) -> list[dict]:
+    """Return [{table, name, expression, format_string, display_folder, is_hidden}].
+
+    TMSCHEMA_MEASURES stores TableID, not the table name, so build an ID->name map
+    from TMSCHEMA_TABLES first and resolve each measure's owning table.
+    """
+    script = f"""
+$conn = New-Object Microsoft.AnalysisServices.AdomdClient.AdomdConnection("Data Source=localhost:{port};Initial Catalog={catalog}")
+$conn.Open()
+$dsTbl = $conn.GetSchemaDataSet("TMSCHEMA_TABLES", $null)
+$map = @{{}}
+foreach ($r in $dsTbl.Tables[0].Rows) {{ $map[[string]$r['ID']] = [string]$r['Name'] }}
+
+$ds = $conn.GetSchemaDataSet("TMSCHEMA_MEASURES", $null)
+$out = @()
+foreach ($r in $ds.Tables[0].Rows) {{
+    $tid = [string]$r['TableID']
+    $tname = if ($map.ContainsKey($tid)) {{ $map[$tid] }} else {{ $null }}
+    $fmt = if ($r['FormatString'] -is [System.DBNull]) {{ $null }} else {{ [string]$r['FormatString'] }}
+    $fold = if ($r['DisplayFolder'] -is [System.DBNull]) {{ $null }} else {{ [string]$r['DisplayFolder'] }}
+    $out += @{{
+        table = $tname
+        name = [string]$r['Name']
+        expression = [string]$r['Expression']
+        format_string = $fmt
+        display_folder = $fold
+        is_hidden = [bool]$r['IsHidden']
+    }}
+}}
+$conn.Close()
+@{{ items = @($out) }} | ConvertTo-Json -Compress -Depth 4"""
+    data = _run_ps(script)
+    return data.get("items", []) if isinstance(data, dict) else []
+
+
 def execute_dax(port: int, catalog: str, dax_query: str, max_rows: int = 500) -> dict:
     """Execute a DAX query and return {columns, rows, row_count, truncated, markdown_table}."""
     # Escape single quotes in the DAX for embedding in PS string
     safe_dax = dax_query.replace("'", "''")
+    # $ErrorActionPreference must be 'Stop' here and the body wrapped in try/catch.
+    # The module header sets 'Continue', so a failing ExecuteReader() did NOT abort the
+    # script: $reader stayed null, every subsequent statement failed quietly, and the
+    # final ConvertTo-Json emitted an EMPTY but successful-looking result. Invalid DAX
+    # therefore looked like "query returned no rows", which also made validate_measure
+    # report broken expressions as valid.
     script = f"""
+$ErrorActionPreference = 'Stop'
+try {{
 $conn = New-Object Microsoft.AnalysisServices.AdomdClient.AdomdConnection("Data Source=localhost:{port};Initial Catalog={catalog}")
 $conn.Open()
 $cmd  = $conn.CreateCommand()
@@ -156,8 +280,16 @@ $reader.Close(); $conn.Close()
 $truncated = $rows.Count -gt {max_rows}
 if ($truncated) {{ $rows = $rows | Select-Object -First {max_rows} }}
 
-@{{ columns = $cols; rows = $rows; row_count = $rows.Count; truncated = $truncated }} | ConvertTo-Json -Depth 5 -Compress"""
+@{{ status = 'ok'; columns = $cols; rows = $rows; row_count = $rows.Count; truncated = $truncated }} | ConvertTo-Json -Depth 5 -Compress
+}} catch {{
+    try {{ if ($reader) {{ $reader.Close() }} }} catch {{}}
+    try {{ if ($conn) {{ $conn.Close() }} }} catch {{}}
+    @{{ status = 'error'; message = $_.Exception.Message }} | ConvertTo-Json -Compress
+}}"""
     data = _run_ps(script)
+    if isinstance(data, dict) and data.get("status") == "error":
+        # Surface as ValueError: dax_tools.execute_dax turns this into "DAX error: ..."
+        raise ValueError(data.get("message", "DAX query failed"))
 
     columns = data.get("columns") or []
     rows_raw = data.get("rows") or []
@@ -226,13 +358,27 @@ def push_measure(
     format_string: str | None = None,
 ) -> dict:
     """
-    Add or replace a measure in a table via TMSL createOrReplace.
+    DEPRECATED AND DISABLED — destructive. Use live_writer.upsert_measure instead.
 
-    Power BI Desktop's embedded AS only accepts a full table body inside
-    createOrReplace (individual `measure` objects inside `create` are rejected).
-    This function reads the existing measures and partitions, merges the new
-    measure in, and posts a single createOrReplace for the whole table.
+    This wrote the measure with a TMSL `createOrReplace` scoped to the whole TABLE.
+    TMSL replaces the entire object, but the body built below contains only
+    {name, measures, partitions}:
+      • `columns` is omitted        -> every column on the table would be DROPPED
+      • partitions are forced to `source.type = 'calculated'` with QueryDefinition as
+        the expression -> `type: 'm'` (Power Query) partitions would be CORRUPTED
+    Calling it on a real table destroys it, so it now refuses instead of executing.
+    The body is kept below purely as documentation of what was wrong.
     """
+    return {
+        "status": "error",
+        "message": (
+            "push_measure via whole-table TMSL createOrReplace is disabled: it drops "
+            "the table's columns and rewrites Power Query (type 'm') partitions as "
+            "calculated ones. Use live_writer.upsert_measure (granular TOM edit) "
+            "instead, or edit the saved model via open_pbip_folder + save_model."
+        ),
+    }
+    # --- unreachable: retained to document the destructive payload ---
     safe_table = table_name.replace("'", "''")
     safe_name = name.replace("'", "''")
     safe_expr = expression.replace("'", "''")

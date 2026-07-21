@@ -7,13 +7,20 @@ from __future__ import annotations
 
 from src.context.live_context import LiveContext
 from src.context.manager import ContextManager
-from src.discovery.port_finder import find_desktop_instances
+from src.discovery.port_finder import diagnose_discovery_failure, find_desktop_instances
 
 
 def discover_desktop() -> dict:
     """Scan for running Power BI Desktop instances. Returns empty list if none found."""
     instances = find_desktop_instances()
-    return {"instances": instances, "count": len(instances)}
+    result = {"instances": instances, "count": len(instances)}
+    if not instances:
+        # Explain the empty result when the engine appears to be running, instead of
+        # silently reporting zero (which previously hid a real configuration fault).
+        reason = diagnose_discovery_failure()
+        if reason:
+            result["diagnostic"] = reason
+    return result
 
 
 def connect_desktop(model_name: str | None = None, port: int | None = None) -> dict:
@@ -25,12 +32,14 @@ def connect_desktop(model_name: str | None = None, port: int | None = None) -> d
     instances = find_desktop_instances()
 
     if not instances:
-        return {
-            "error": (
-                "No Power BI Desktop instance detected. "
-                "Open a model in Desktop first."
-            )
-        }
+        msg = (
+            "No Power BI Desktop instance detected. "
+            "Open a model in Desktop first."
+        )
+        reason = diagnose_discovery_failure()
+        if reason:
+            msg += f" Diagnostic: {reason}"
+        return {"error": msg}
 
     target = None
 

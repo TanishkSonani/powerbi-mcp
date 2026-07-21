@@ -1,7 +1,9 @@
 """Relationship CRUD MCP tools."""
 
+from src.context import live_writer
 from src.context.manager import ContextManager
 from src.tmdl.models import Relationship
+from src.tools._live import live_target
 
 
 def list_relationships() -> dict:
@@ -29,6 +31,12 @@ def create_relationship(
     from_cardinality: str = "many",
     to_cardinality: str = "one",
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.create_relationship(
+            lc.port, lc.catalog, from_table, from_column, to_table, to_column,
+            from_cardinality=from_cardinality, to_cardinality=to_cardinality,
+        )
     ctx = ContextManager.get().get_active_context()
     # Duplicate check
     for r in ctx.model_state.relationships:
@@ -58,6 +66,11 @@ def delete_relationship(
     to_table: str,
     to_column: str,
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.delete_relationship(
+            lc.port, lc.catalog, from_table, from_column, to_table, to_column,
+        )
     ctx = ContextManager.get().get_active_context()
     before = len(ctx.model_state.relationships)
     ctx.model_state.relationships = [
