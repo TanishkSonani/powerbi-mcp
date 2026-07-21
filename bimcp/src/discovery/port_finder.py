@@ -23,11 +23,16 @@ import requests
 # Constants
 # ---------------------------------------------------------------------------
 
-_WORKSPACES_ROOT = (
-    Path(os.environ.get("LOCALAPPDATA", ""))
-    / "Microsoft"
-    / "Power BI Desktop"
-    / "AnalysisServicesWorkspaces"
+_LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", ""))
+
+# Power BI Desktop keeps its AS workspace in a different place per distribution.
+# Only the classic path was scanned before, so Store/MSIX installs found nothing.
+_WORKSPACE_ROOTS = (
+    _LOCALAPPDATA / "Microsoft" / "Power BI Desktop" / "AnalysisServicesWorkspaces",
+    _LOCALAPPDATA / "Microsoft" / "Power BI Desktop Store App" / "AnalysisServicesWorkspaces",
+    _LOCALAPPDATA / "Packages" / "Microsoft.MicrosoftPowerBIDesktop_8wekyb3d8bbwe"
+    / "LocalCache" / "Local" / "Microsoft" / "Power BI Desktop Store App"
+    / "AnalysisServicesWorkspaces",
 )
 
 _XMLA_NS = "urn:schemas-microsoft-com:xml-analysis"
@@ -53,18 +58,25 @@ _DISCOVER_ENVELOPE = """\
 # ---------------------------------------------------------------------------
 
 def find_desktop_port_files() -> list[dict]:
-    """Return [{port, workspace_path}] from msmdsrv.port.txt files."""
+    """Return [{port, workspace_path}] from msmdsrv.port.txt across all known roots."""
     results: list[dict] = []
-    if not _WORKSPACES_ROOT.exists():
-        return results
-    for ws_dir in _WORKSPACES_ROOT.iterdir():
-        if not ws_dir.is_dir():
-            continue
-        port_file = ws_dir / "Data" / "msmdsrv.port.txt"
+    for root in _WORKSPACE_ROOTS:
         try:
-            port = int(port_file.read_text(encoding="utf-8").strip())
-            results.append({"port": port, "workspace_path": str(ws_dir)})
-        except (FileNotFoundError, ValueError):
+            if not root.exists():
+                continue
+            for ws_dir in root.iterdir():
+                if not ws_dir.is_dir():
+                    continue
+                port_file = ws_dir / "Data" / "msmdsrv.port.txt"
+                try:
+                    # UTF-16 is possible here; decode leniently and keep digits only.
+                    raw = port_file.read_text(encoding="utf-8", errors="ignore")
+                    digits = "".join(ch for ch in raw if ch.isdigit())
+                    if digits:
+                        results.append({"port": int(digits), "workspace_path": str(ws_dir)})
+                except (OSError, ValueError):
+                    continue
+        except OSError:
             continue
     return results
 
@@ -100,10 +112,56 @@ def find_desktop_ports_via_netstat() -> list[int]:
             if len(cols) >= 5 and cols[3] == "LISTENING" and cols[4] in pids:
                 m = re.search(r":(\d+)$", cols[1])
                 if m:
-                    ports.append(int(m.group(1)))
+                    port = int(m.group(1))
+                    # msmdsrv listens on both IPv4 and IPv6, yielding the same port
+                    # twice; de-duplicate while preserving discovery order.
+                    if port not in ports:
+                        ports.append(port)
         return ports
     except Exception:
         return []
+
+
+def is_msmdsrv_running() -> bool:
+    """True if the Power BI Desktop AS engine process exists (any distribution)."""
+    try:
+        tl = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH", "/FI", "IMAGENAME eq msmdsrv.exe"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return "msmdsrv.exe" in tl.stdout
+    except Exception:
+        return False
+
+
+def diagnose_discovery_failure() -> str | None:
+    """
+    Explain why discovery found nothing, when it plausibly should have.
+
+    Silent failure was how the hardcoded-ADOMD-path bug hid for so long: the engine
+    was running and the port was open, but every probe returned None with no reason.
+    """
+    if not is_msmdsrv_running():
+        return None  # genuinely nothing running — the normal empty case
+    from src.context import ps_adomd_bridge as _bridge
+    if not _bridge.is_available():
+        return (
+            "Power BI Desktop's analysis engine (msmdsrv.exe) is running, but the "
+            "ADOMD client library could not be located, so the instance cannot be "
+            "probed. Looked for 'Microsoft.PowerBI.AdomdClient.dll' in the classic "
+            "install path, next to the running msmdsrv.exe, and under WindowsApps. "
+            "Install Power BI Desktop, or ensure the running install is readable."
+        )
+    ports = find_desktop_ports_via_netstat()
+    if not ports:
+        return (
+            "msmdsrv.exe is running but no listening TCP port was found for it. "
+            "The model may still be loading — retry in a few seconds."
+        )
+    return (
+        f"msmdsrv.exe is running and listening on {ports}, but the XMLA probe failed. "
+        "The model may still be loading, or the connection was refused."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -172,9 +230,11 @@ def find_desktop_instances() -> list[dict]:
     for entry in find_desktop_port_files():
         candidates[entry["port"]] = entry["workspace_path"]
 
-    if not candidates:
-        for p in find_desktop_ports_via_netstat():
-            candidates.setdefault(p, None)
+    # Always merge the netstat-derived ports rather than only when the primary scan
+    # is empty: a stale msmdsrv.port.txt left by a crashed session yields a dead
+    # candidate that would otherwise mask the genuinely running instance.
+    for p in find_desktop_ports_via_netstat():
+        candidates.setdefault(p, None)
 
     # Probe each candidate
     instances: list[dict] = []

@@ -1,6 +1,7 @@
 """User-defined function (UDF) CRUD tools — file-context only."""
 
 from src.context.manager import ContextManager, FileContext
+from src.tools._live import live_target, live_unsupported
 from src.tmdl.models import UDF
 
 _FILE_CTX_ERROR = {
@@ -16,8 +17,6 @@ def _require_file_ctx():
         ctx = ContextManager.get().get_active_context()
     except RuntimeError as exc:
         return {"error": str(exc)}
-    if not isinstance(ctx, FileContext):
-        return _FILE_CTX_ERROR
     return ctx
 
 
@@ -68,6 +67,8 @@ def create_udf(
     Example parameter format:
         [{"name": "Amount", "type": "double", "description": "The amount value"}]
     """
+    if live_target() is not None:
+        return live_unsupported("User-defined functions (UDFs)")
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -138,6 +139,8 @@ def update_udf(
         description: New description (optional)
         parameters: New parameters list (optional, replaces existing)
     """
+    if live_target() is not None:
+        return live_unsupported("User-defined functions (UDFs)")
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -204,6 +207,8 @@ def update_udf(
 
 def delete_udf(udf_name: str) -> dict:
     """Delete a user-defined function."""
+    if live_target() is not None:
+        return live_unsupported("User-defined functions (UDFs)")
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx

@@ -38,6 +38,37 @@ All phases implemented: Foundation & Resources, TMDL File Manipulation, Live Des
 | **UDFs** | `list_udfs`, `create_udf`, `update_udf`, `delete_udf` |
 | **Calendars** | `list_calendars`, `create_calendar`, `update_calendar_column_group`, `delete_calendar` |
 
+> 📘 **Using this as a Power BI analyst rather than a developer?** See
+> **[README_FOR_ANALYSTS.md](README_FOR_ANALYSTS.md)** — plain-English guide with example prompts.
+
+### Context support
+
+Every tool declares its supported context in its MCP description, so agents pick correctly:
+`[file+live]`, `[file]`, `[live]`, `[any]`.
+
+| Capability | file (PBIP folder) | live (Desktop) |
+|---|:--:|:--:|
+| All read/inspect tools (tables, columns, measures, relationships, roles, cultures, UDFs, calendars, model info) | ✅ | ✅ |
+| Measures / columns / relationships / roles / RLS / translations — create, update, delete | ✅ | ✅ ¹ |
+| `create_table`, UDFs, calendar groups | ✅ | ❌ ² |
+| `execute_dax` | ❌ ³ | ✅ |
+| `validate_measure` | ✅ static | ✅ evaluated |
+| `save_model` | ✅ | no-op ⁴ |
+
+¹ Live writes use granular TOM edits and require Microsoft's free **Analysis Services client
+libraries** (AMO/ADOMD). Without them every write refuses with an actionable message — it never
+falls back to an unsafe path. Live *reads* need nothing extra.
+² No stable live-edit surface; edit the saved model instead.
+³ A folder of TMDL text has no query engine — this is a hard limit, not a gap.
+⁴ Live edits apply immediately, so there is nothing to flush.
+
+### Live editing safety
+
+Live writes are **granular** (`Measures.Add(...)` → `SaveChanges()`). An earlier implementation
+used a whole-table TMSL `createOrReplace` whose payload omitted `columns` and rewrote Power Query
+(`type: 'm'`) partitions as calculated ones — destroying any real table. That path is disabled and
+replaced; no operation replaces a whole object.
+
 ---
 
 ## Prerequisites

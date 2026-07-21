@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from src.context.live_guard import FileOnlyAttrsGuard
+
 # ---------------------------------------------------------------------------
 # SOAP envelope templates
 # ---------------------------------------------------------------------------
@@ -61,7 +63,7 @@ _XSD_NS = "http://www.w3.org/2001/XMLSchema"
 _SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
 
 
-class LiveContext:
+class LiveContext(FileOnlyAttrsGuard):
     """Stateless XMLA HTTP client for a single running Desktop model."""
 
     def __init__(self, port: int, model_name: str) -> None:

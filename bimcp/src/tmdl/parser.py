@@ -307,6 +307,39 @@ def _collect_raw_block(lines: list[str], i: int, n: int, stop_indent: int) -> tu
 # relationships.tmdl
 # ---------------------------------------------------------------------------
 
+def _split_dotted_ref(value: str) -> tuple[str, str]:
+    """
+    Split a TMDL dotted reference `Table.Column` into its two parts.
+
+    Identifiers are single-quoted when they contain spaces or dots, so a naive
+    split(".") corrupts names like `'Sales.2024'.'Net Amount'`. Parse the first
+    identifier explicitly (quoted or bare), then take the remainder as the second.
+    Embedded quotes are escaped by doubling ('') in TMDL.
+    """
+    v = value.strip()
+    if v.startswith("'"):
+        i, buf = 1, []
+        while i < len(v):
+            if v[i] == "'":
+                if i + 1 < len(v) and v[i + 1] == "'":   # escaped quote
+                    buf.append("'")
+                    i += 2
+                    continue
+                i += 1
+                break
+            buf.append(v[i])
+            i += 1
+        first = "".join(buf)
+        rest = v[i:].lstrip()
+        rest = rest[1:] if rest.startswith(".") else rest
+    else:
+        first, _, rest = v.partition(".")     # bare names cannot contain dots
+    rest = rest.strip()
+    if rest.startswith("'") and rest.endswith("'") and len(rest) >= 2:
+        rest = rest[1:-1].replace("''", "'")
+    return first.strip(), rest
+
+
 def parse_relationships_file(path: Path) -> list[Relationship]:
     if not path.exists():
         return []
@@ -349,15 +382,33 @@ def parse_relationships_file(path: Path) -> list[Relationship]:
             if ":" in s:
                 key, _, val = s.partition(":")
                 key, val = key.strip(), val.strip()
+
+                # Real TMDL writes a DOTTED reference — `fromColumn: Table.Column` —
+                # and emits no separate fromTable/toTable lines. Handling only the
+                # split form meant `fromTable` was never set, so _flush() silently
+                # dropped EVERY relationship (Power BI's own exports included).
+                if key in ("fromColumn", "toColumn") and "." in val:
+                    tbl, col = _split_dotted_ref(val)
+                    side = "from" if key == "fromColumn" else "to"
+                    current[f"{side}Table"] = tbl
+                    current[f"{side}Column"] = col
+                    continue
+
                 mapping = {
                     "fromTable": "fromTable", "fromColumn": "fromColumn",
                     "toTable": "toTable", "toColumn": "toColumn",
                     "fromCardinality": "fromCardinality", "toCardinality": "toCardinality",
+                    # TMDL spells it `crossFilteringBehavior`; the original key was a typo.
+                    "crossFilteringBehavior": "crossFilterBehavior",
                     "crossFilterBehavior": "crossFilterBehavior",
                 }
                 if key in mapping:
                     current[mapping[key]] = val
-            elif s.strip() == "isActive = false":
+                elif key == "isActive":
+                    # `isActive: false` is the real form; the old code only matched
+                    # `isActive = false`, so inactive relationships parsed as active.
+                    current["isActive"] = val.strip().lower() not in ("false", "0")
+            elif s.strip() in ("isActive = false", "isActive: false"):
                 current["isActive"] = False
 
     _flush()

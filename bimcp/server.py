@@ -148,180 +148,180 @@ _TOOLS: list[Tool] = [
     # ---- Model ----
     Tool(
         name="open_pbip_folder",
-        description="Open a PBIP folder and load its TMDL model into memory. Accepts the PBIP root, .SemanticModel folder, or definition/ folder.",
+        description="[file] Open a PBIP folder and load its TMDL model into memory. Accepts the PBIP root, .SemanticModel folder, or definition/ folder.",
         inputSchema={"type": "object", "properties": {"path": {**_STR, "description": "Path to the PBIP root, .SemanticModel, or definition/ folder"}}, "required": ["path"]},
     ),
     Tool(
         name="get_model_info",
-        description="Return metadata about the currently open model (name, compatibility level, table/measure counts, dirty flag).",
+        description="[file+live] Return metadata about the currently open model (name, compatibility level, table/measure counts, dirty flag).",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="save_model",
-        description="Flush all in-memory changes to disk as TMDL files. Returns the list of written file paths.",
+        description="[file] Flush all in-memory changes to disk as TMDL files. Returns the list of written file paths. In live mode this is a no-op - live edits apply immediately.",
         inputSchema={"type": "object", "properties": {}},
     ),
     # ---- Tables ----
     Tool(
         name="list_tables",
-        description="List all tables in the open model with column and measure counts.",
+        description="[file+live] List all tables in the open model with column and measure counts.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="get_table",
-        description="Return full detail for one table — all columns and measures.",
+        description="[file+live] Return full detail for one table — all columns and measures.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR, "description": "Exact table name"}}, "required": ["table_name"]},
     ),
     Tool(
         name="create_table",
-        description="Add a new (empty) table to the model.",
+        description="[file] Add a new (empty) table to the model. A live table needs a partition authored in Power BI Desktop, so live creation is refused.",
         inputSchema={"type": "object", "properties": {"name": {**_STR, "description": "Table name"}, "description": {**_STR, "description": "Optional description"}}, "required": ["name"]},
     ),
     Tool(
         name="update_table",
-        description="Rename a table or change its description.",
+        description="[file+live] Rename a table or change its description.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR, "description": "Current table name"}, "new_name": {**_STR, "description": "New name (optional)"}, "description": {**_STR, "description": "New description (optional)"}}, "required": ["table_name"]},
     ),
     Tool(
         name="delete_table",
-        description="Remove a table from the model.",
+        description="[file+live] Remove a table from the model.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR, "description": "Table to delete"}}, "required": ["table_name"]},
     ),
     # ---- Measures ----
     Tool(
         name="list_measures",
-        description="List all measures across all tables (with expression preview).",
+        description="[file+live] List all measures across all tables (with expression preview).",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="get_measure",
-        description="Return full detail (expression, format, description) for one measure.",
+        description="[file+live] Return full detail (expression, format, description) for one measure.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR, "description": "Host table"}, "measure_name": {**_STR, "description": "Measure name"}}, "required": ["table_name", "measure_name"]},
     ),
     Tool(
         name="create_measure",
-        description="Add a new DAX measure to a table.",
+        description="[file+live] Add a new DAX measure to a table.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "name": {**_STR}, "expression": {**_STR, "description": "DAX expression"}, "format_string": {**_STR, "description": "Optional format string"}, "description": {**_STR}, "display_folder": {**_STR}}, "required": ["table_name", "name", "expression"]},
     ),
     Tool(
         name="update_measure",
-        description="Modify a measure's DAX expression, name, format string, or description.",
+        description="[file+live] Modify a measure's DAX expression, name, format string, or description.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "measure_name": {**_STR}, "new_expression": {**_STR}, "new_name": {**_STR}, "new_format_string": {**_STR}, "description": {**_STR}, "display_folder": {**_STR}}, "required": ["table_name", "measure_name"]},
     ),
     Tool(
         name="delete_measure",
-        description="Remove a measure from a table.",
+        description="[file+live] Remove a measure from a table.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "measure_name": {**_STR}}, "required": ["table_name", "measure_name"]},
     ),
     # ---- Columns ----
     Tool(
         name="list_columns",
-        description="List all columns in a specific table.",
+        description="[file+live] List all columns in a specific table.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}}, "required": ["table_name"]},
     ),
     Tool(
         name="create_column",
-        description="Add a column to a table (data column or calculated column).",
+        description="[file+live] Add a column to a table (data column or calculated column). Live: calculated columns only (data columns come from the Power Query partition).",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "name": {**_STR}, "data_type": {**_STR, "description": "e.g. string, int64, decimal, dateTime, boolean"}, "source_column": {**_STR}, "expression": {**_STR, "description": "DAX for calculated columns"}, "format_string": {**_STR}, "description": {**_STR}}, "required": ["table_name", "name"]},
     ),
     Tool(
         name="update_column",
-        description="Modify a column's name, data type, description, or format string.",
+        description="[file+live] Modify a column's name, data type, description, or format string. Live: calculated columns only; data columns are owned by the partition.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "column_name": {**_STR}, "new_name": {**_STR}, "description": {**_STR}, "format_string": {**_STR}, "data_type": {**_STR}}, "required": ["table_name", "column_name"]},
     ),
     Tool(
         name="delete_column",
-        description="Remove a column from a table.",
+        description="[file+live] Remove a column from a table.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "column_name": {**_STR}}, "required": ["table_name", "column_name"]},
     ),
     # ---- Relationships ----
     Tool(
         name="list_relationships",
-        description="List all relationships in the model.",
+        description="[file+live] List all relationships in the model.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="create_relationship",
-        description="Add a relationship between two tables.",
+        description="[file+live] Add a relationship between two tables.",
         inputSchema={"type": "object", "properties": {"from_table": {**_STR}, "from_column": {**_STR}, "to_table": {**_STR}, "to_column": {**_STR}, "from_cardinality": {**_STR, "description": "many (default) or one"}, "to_cardinality": {**_STR, "description": "one (default) or many"}}, "required": ["from_table", "from_column", "to_table", "to_column"]},
     ),
     Tool(
         name="delete_relationship",
-        description="Remove a relationship by specifying both ends.",
+        description="[file+live] Remove a relationship by specifying both ends.",
         inputSchema={"type": "object", "properties": {"from_table": {**_STR}, "from_column": {**_STR}, "to_table": {**_STR}, "to_column": {**_STR}}, "required": ["from_table", "from_column", "to_table", "to_column"]},
     ),
     # ---- Desktop (Phase 3) ----
     Tool(
         name="discover_desktop",
-        description="Scan for running Power BI Desktop instances and return their model names and ports.",
+        description="[live] Scan for running Power BI Desktop instances and return their model names and ports.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="connect_desktop",
-        description="Connect to a running Power BI Desktop model via local XMLA. Specify model_name or port to disambiguate when multiple instances are open.",
+        description="[live] Connect to a running Power BI Desktop model via local XMLA. Specify model_name or port to disambiguate when multiple instances are open.",
         inputSchema={"type": "object", "properties": {"model_name": {**_STR, "description": "Model name (case-insensitive)"}, "port": {"type": "integer", "description": "XMLA port number"}}},
     ),
     Tool(
         name="disconnect",
-        description="Release the current context (file or live Desktop). Safe to call when no context is active.",
+        description="[any] Release the current context (file or live Desktop). Safe to call when no context is active.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="get_desktop_model_info",
-        description="Return live metadata from the connected Desktop model (tables, measure count, port). Requires connect_desktop first.",
+        description="[live] Return live metadata from the connected Desktop model (tables, measure count, port). Requires connect_desktop first.",
         inputSchema={"type": "object", "properties": {}},
     ),
     # ---- DAX / live mutation (Phase 3) ----
     Tool(
         name="execute_dax",
-        description="Execute a DAX query against the live Desktop model and return results as a markdown table. Requires connect_desktop first.",
+        description="[live] Execute a DAX query against the live Desktop model and return results as a markdown table. Requires connect_desktop first. Requires connect_desktop; a folder of TMDL files has no query engine.",
         inputSchema={"type": "object", "properties": {"dax_query": {**_STR, "description": "DAX query to execute (e.g. EVALUATE ...)"}, "max_rows": {"type": "integer", "description": "Maximum rows to return (default 500)"}}, "required": ["dax_query"]},
     ),
     Tool(
         name="validate_measure",
-        description="Validate a DAX expression against the live model. Returns {valid, result, error}. Requires connect_desktop first.",
+        description="[file+live] Validate a DAX expression against the live model. Returns {valid, result, error}. Requires connect_desktop first. Live evaluates against the engine; file mode does a static syntax/reference check only.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR, "description": "Table context for the expression"}, "expression": {**_STR, "description": "DAX expression to validate"}}, "required": ["table_name", "expression"]},
     ),
     Tool(
         name="push_measure_live",
-        description="Create or replace a measure in the live Desktop model without writing to disk. Changes are immediately visible in Power BI. Requires connect_desktop first.",
+        description="[live] Create or replace a measure in the live Desktop model without writing to disk. Changes are immediately visible in Power BI. Requires connect_desktop first. Applies a granular TOM edit; never replaces the whole table.",
         inputSchema={"type": "object", "properties": {"table_name": {**_STR}, "name": {**_STR, "description": "Measure name"}, "expression": {**_STR, "description": "DAX expression"}, "format_string": {**_STR, "description": "Optional format string"}}, "required": ["table_name", "name", "expression"]},
     ),
     # ---- RLS Roles (Phase 4) ----
     Tool(
         name="list_roles",
-        description="List all RLS roles in the open model with their permission level and filter count.",
+        description="[file+live] List all RLS roles in the open model with their permission level and filter count.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="create_role",
-        description="Create a new RLS role. modelPermission values: Read, ReadRefresh, ReadExploreData, Admin.",
+        description="[file+live] Create a new RLS role. modelPermission values: Read, ReadRefresh, ReadExploreData, Admin.",
         inputSchema={"type": "object", "properties": {"name": {**_STR, "description": "Role name"}, "model_permission": {**_STR, "description": "Read (default), ReadRefresh, ReadExploreData, or Admin"}}, "required": ["name"]},
     ),
     Tool(
         name="update_role",
-        description="Rename a role or change its model permission level.",
+        description="[file+live] Rename a role or change its model permission level.",
         inputSchema={"type": "object", "properties": {"role_name": {**_STR, "description": "Current role name"}, "new_name": {**_STR, "description": "New name (optional)"}, "model_permission": {**_STR, "description": "New permission level (optional)"}}, "required": ["role_name"]},
     ),
     Tool(
         name="add_rls_filter",
-        description="Add or replace a row-level security DAX filter on a table for a role. Omit filter_expression to grant full table access within the role.",
+        description="[file+live] Add or replace a row-level security DAX filter on a table for a role. Omit filter_expression to grant full table access within the role.",
         inputSchema={"type": "object", "properties": {"role_name": {**_STR}, "table_name": {**_STR}, "filter_expression": {**_STR, "description": "DAX filter expression (optional — omit for full access)"}}, "required": ["role_name", "table_name"]},
     ),
     Tool(
         name="delete_rls_filter",
-        description="Remove the row-level security filter for a specific table from a role.",
+        description="[file+live] Remove the row-level security filter for a specific table from a role.",
         inputSchema={"type": "object", "properties": {"role_name": {**_STR}, "table_name": {**_STR}}, "required": ["role_name", "table_name"]},
     ),
     # ---- Cultures/Translations (Phase 4) ----
     Tool(
         name="list_cultures",
-        description="List all cultures (languages) in the open model with their translation counts.",
+        description="[file+live] List all cultures (languages) in the open model with their translation counts.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="add_translation",
-        description="Add or update a translation for a table, measure, or column. Use property_name: Caption, Description, or DisplayFolder.",
+        description="[file+live] Add or update a translation for a table, measure, or column. Use property_name: Caption, Description, or DisplayFolder.",
         inputSchema={"type": "object", "properties": {
             "culture_name": {**_STR, "description": "Culture code (e.g., 'fr-FR', 'de-DE')"},
             "object_type": {**_STR, "description": "'Table', 'Measure', or 'Column'"},
@@ -333,7 +333,7 @@ _TOOLS: list[Tool] = [
     ),
     Tool(
         name="bulk_add_translations",
-        description="Add multiple translations at once for a culture. Each translation needs object_type, object_name, property_name, translated_value, and optionally table_name.",
+        description="[file+live] Add multiple translations at once for a culture. Each translation needs object_type, object_name, property_name, translated_value, and optionally table_name.",
         inputSchema={"type": "object", "properties": {
             "culture_name": {**_STR, "description": "Culture code (e.g., 'fr-FR')"},
             "translations": {"type": "array", "description": "Array of translation objects", "items": {"type": "object"}},
@@ -342,12 +342,12 @@ _TOOLS: list[Tool] = [
     # ---- UDFs (Phase 4) ----
     Tool(
         name="list_udfs",
-        description="List all user-defined functions (UDFs) in the open model.",
+        description="[file+live] List all user-defined functions (UDFs) in the open model.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="create_udf",
-        description="Create a new user-defined function. Return types: variant, string, int64, double, datetime, boolean.",
+        description="[file] Create a new user-defined function. Return types: variant, string, int64, double, datetime, boolean. UDFs cannot be edited in a live model.",
         inputSchema={"type": "object", "properties": {
             "name": {**_STR, "description": "Function name"},
             "expression": {**_STR, "description": "DAX expression body"},
@@ -358,7 +358,7 @@ _TOOLS: list[Tool] = [
     ),
     Tool(
         name="update_udf",
-        description="Update an existing user-defined function.",
+        description="[file] Update an existing user-defined function. UDFs cannot be edited in a live model.",
         inputSchema={"type": "object", "properties": {
             "udf_name": {**_STR, "description": "Current UDF name"},
             "new_name": {**_STR, "description": "New name (optional)"},
@@ -370,18 +370,18 @@ _TOOLS: list[Tool] = [
     ),
     Tool(
         name="delete_udf",
-        description="Delete a user-defined function.",
+        description="[file] Delete a user-defined function. UDFs cannot be edited in a live model.",
         inputSchema={"type": "object", "properties": {"udf_name": {**_STR, "description": "UDF name to delete"}}, "required": ["udf_name"]},
     ),
     # ---- Calendar Column Groups (Phase 4) ----
     Tool(
         name="list_calendars",
-        description="List all calendar column groups in the open model for date hierarchies.",
+        description="[file+live] List all calendar column groups in the open model for date hierarchies.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="create_calendar",
-        description="Create a calendar column group for date hierarchies. Valid time_unit: Year, Quarter, Month, Day, Week, DayOfWeek, DayOfYear, WeekOfYear, MonthOfYear, Hour, Minute, Second.",
+        description="[file] Create a calendar column group for date hierarchies. Valid time_unit: Year, Quarter, Month, Day, Week, DayOfWeek, DayOfYear, WeekOfYear, MonthOfYear, Hour, Minute, Second. Calendar groups cannot be edited in a live model.",
         inputSchema={"type": "object", "properties": {
             "table_name": {**_STR, "description": "Table containing the date column"},
             "column_name": {**_STR, "description": "Date column name"},
@@ -392,7 +392,7 @@ _TOOLS: list[Tool] = [
     ),
     Tool(
         name="update_calendar_column_group",
-        description="Update an existing calendar column group.",
+        description="[file] Update an existing calendar column group. Calendar groups cannot be edited in a live model.",
         inputSchema={"type": "object", "properties": {
             "group_name": {**_STR, "description": "Current group name"},
             "new_name": {**_STR, "description": "New name (optional)"},
@@ -402,7 +402,7 @@ _TOOLS: list[Tool] = [
     ),
     Tool(
         name="delete_calendar",
-        description="Delete a calendar column group.",
+        description="[file] Delete a calendar column group. Calendar groups cannot be edited in a live model.",
         inputSchema={"type": "object", "properties": {"group_name": {**_STR, "description": "Group name to delete"}}, "required": ["group_name"]},
     ),
 ]

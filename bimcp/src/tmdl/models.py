@@ -141,5 +141,3 @@ class TmdlModelState:
     udfs: dict[str, UDF] = field(default_factory=dict)       # udf_name → UDF
     calendar_groups: list[CalendarColumnGroup] = field(default_factory=list)
     _dirty: bool = False
-    roles: dict[str, Role] = field(default_factory=dict)     # role_name → Role
-    _dirty: bool = False

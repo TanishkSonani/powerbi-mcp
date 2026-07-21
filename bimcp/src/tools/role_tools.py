@@ -1,22 +1,22 @@
 """RLS role CRUD tools — file-context only."""
 
+from src.context import live_writer
 from src.context.manager import ContextManager, FileContext
 from src.tmdl.models import Role, RlsFilter
-
-_FILE_CTX_ERROR = {
-    "error": "RLS tools require an open PBIP folder. Use open_pbip_folder first."
-}
+from src.tools._live import live_target
 
 
 def _require_file_ctx():
-    """Return FileContext or an error dict."""
+    """Return the active context, or an error dict when nothing is open.
+
+    Previously this refused any live connection outright. Reads now work in both
+    contexts (PsLiveContext materialises the same model_state), and the mutating
+    tools branch to live_writer before reaching here.
+    """
     try:
-        ctx = ContextManager.get().get_active_context()
+        return ContextManager.get().get_active_context()
     except RuntimeError as exc:
         return {"error": str(exc)}
-    if not isinstance(ctx, FileContext):
-        return _FILE_CTX_ERROR
-    return ctx
 
 
 def list_roles() -> dict:
@@ -37,6 +37,9 @@ def list_roles() -> dict:
 
 
 def create_role(name: str, model_permission: str = "Read") -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.upsert_role(lc.port, lc.catalog, name, model_permission)
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -56,6 +59,13 @@ def update_role(
     new_name: str | None = None,
     model_permission: str | None = None,
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        if new_name and new_name != role_name:
+            return {"error": "Renaming a role in a live model isn't supported; create the new role and delete the old one."}
+        return live_writer.upsert_role(
+            lc.port, lc.catalog, role_name, model_permission or "Read",
+        )
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -80,6 +90,11 @@ def add_rls_filter(
     table_name: str,
     filter_expression: str | None = None,
 ) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.upsert_rls_filter(
+            lc.port, lc.catalog, role_name, table_name, filter_expression,
+        )
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -97,6 +112,9 @@ def add_rls_filter(
 
 
 def delete_rls_filter(role_name: str, table_name: str) -> dict:
+    lc = live_target()
+    if lc is not None:
+        return live_writer.delete_rls_filter(lc.port, lc.catalog, role_name, table_name)
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx

@@ -1,6 +1,7 @@
 """Calendar column group CRUD tools — file-context only."""
 
 from src.context.manager import ContextManager, FileContext
+from src.tools._live import live_target, live_unsupported
 from src.tmdl.models import CalendarColumnGroup
 
 _FILE_CTX_ERROR = {
@@ -20,8 +21,6 @@ def _require_file_ctx():
         ctx = ContextManager.get().get_active_context()
     except RuntimeError as exc:
         return {"error": str(exc)}
-    if not isinstance(ctx, FileContext):
-        return _FILE_CTX_ERROR
     return ctx
 
 
@@ -67,6 +66,8 @@ def create_calendar(
         Year, Quarter, Month, Day, Week, DayOfWeek, DayOfYear,
         WeekOfYear, MonthOfYear, Hour, Minute, Second
     """
+    if live_target() is not None:
+        return live_unsupported("Calendar column groups")
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -145,6 +146,8 @@ def update_calendar_column_group(
         time_unit: New time unit (optional)
         is_default: New default status (optional)
     """
+    if live_target() is not None:
+        return live_unsupported("Calendar column groups")
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -195,6 +198,8 @@ def update_calendar_column_group(
 
 def delete_calendar(group_name: str) -> dict:
     """Delete a calendar column group."""
+    if live_target() is not None:
+        return live_unsupported("Calendar column groups")
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx

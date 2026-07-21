@@ -1,7 +1,9 @@
-"""Translation/Culture CRUD tools — file-context only."""
+"""Translation/Culture CRUD tools — work in both file and live contexts."""
 
+from src.context import live_writer
 from src.context.manager import ContextManager, FileContext
 from src.tmdl.models import Culture, Translation
+from src.tools._live import live_target
 
 _FILE_CTX_ERROR = {
     "error": "Culture tools require an open PBIP folder. Use open_pbip_folder first."
@@ -14,8 +16,6 @@ def _require_file_ctx():
         ctx = ContextManager.get().get_active_context()
     except RuntimeError as exc:
         return {"error": str(exc)}
-    if not isinstance(ctx, FileContext):
-        return _FILE_CTX_ERROR
     return ctx
 
 
@@ -55,6 +55,12 @@ def add_translation(
         translated_value: The translated text
         table_name: Required for Measure and Column, the parent table name
     """
+    lc = live_target()
+    if lc is not None:
+        return live_writer.upsert_translation(
+            lc.port, lc.catalog, culture_name, object_type, object_name,
+            property_name, translated_value, table_name=table_name,
+        )
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
@@ -140,6 +146,26 @@ def bulk_add_translations(
     Returns:
         Summary of created and updated translations.
     """
+    lc = live_target()
+    if lc is not None:
+        applied, failures = 0, []
+        for t in translations or []:
+            res = live_writer.upsert_translation(
+                lc.port, lc.catalog, culture_name,
+                t.get("object_type", ""), t.get("object_name", ""),
+                t.get("property_name", ""), t.get("translated_value", ""),
+                table_name=t.get("table_name"),
+            )
+            if "error" in res:
+                failures.append(f"{t.get('object_name')}: {res['error']}")
+            else:
+                applied += 1
+        out = {"status": "ok", "applied": "live", "culture": culture_name, "count": applied}
+        if failures:
+            # Partial application is reported explicitly rather than swallowed.
+            out["status"] = "partial"
+            out["failures"] = failures
+        return out
     ctx = _require_file_ctx()
     if isinstance(ctx, dict):
         return ctx
