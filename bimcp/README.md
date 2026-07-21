@@ -1,10 +1,16 @@
-# powerbi-local-mcp
+# powerbi-local-mcp — server reference
 
 Universal local MCP server for Power BI modeling. Connects to any MCP-compatible client — Claude Desktop, custom agents, or IDEs. **No cloud. No Fabric. No REST API.** Strictly local Power BI Desktop files and PBIP folders.
+
+> This is the **developer/architecture reference**. For the analyst-facing guide (what you can ask
+> for, live vs file mode, troubleshooting), see the **[project README](../README.md)**.
 
 ## Current Phase: 4 — Complete (43 Tools)
 
 All phases implemented: Foundation & Resources, TMDL File Manipulation, Live Desktop Integration, and Advanced Features (RLS, Translations, UDFs, Calendar Groups).
+
+Every tool works in **both** contexts where technically possible — see
+[Context support](#context-support) below for the verified matrix and the two documented exceptions.
 
 ### Resources (4)
 
@@ -38,8 +44,9 @@ All phases implemented: Foundation & Resources, TMDL File Manipulation, Live Des
 | **UDFs** | `list_udfs`, `create_udf`, `update_udf`, `delete_udf` |
 | **Calendars** | `list_calendars`, `create_calendar`, `update_calendar_column_group`, `delete_calendar` |
 
-> 📘 **Using this as a Power BI analyst rather than a developer?** See
-> **[README_FOR_ANALYSTS.md](README_FOR_ANALYSTS.md)** — plain-English guide with example prompts.
+> 📘 **Using this as a Power BI analyst rather than a developer?** See the
+> **[project README](../README.md)** at the repository root — plain-English guide with example
+> prompts, when to use live vs file mode, and troubleshooting.
 
 ### Context support
 

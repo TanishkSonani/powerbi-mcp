@@ -1,9 +1,14 @@
-# Power BI MCP — Guide for Analysts
+# Power BI MCP
 
-This connects your AI assistant (Claude Desktop) directly to your Power BI models, so you can
-inspect and change them **by asking in plain English** instead of clicking through Power BI Desktop.
+Connect your AI assistant (Claude Desktop) directly to your Power BI models, so you can inspect
+and change them **by asking in plain English** instead of clicking through Power BI Desktop.
 
-Everything runs **locally**. No cloud, no Fabric, no data leaves your machine.
+Everything runs **locally**. No cloud, no Fabric, no REST API — just Power BI Desktop and PBIP
+folders on your own machine.
+
+> **This page is written for Power BI users and analysts.**
+> Working on the server itself, or want the tool/architecture reference?
+> See **[bimcp/README.md](bimcp/README.md)**.
 
 ---
 
@@ -133,8 +138,12 @@ but only a live connection can tell you it returns the *right answer*.
 ## Setup
 
 1. Install Python 3.11+
-2. In this folder: `pip install -e .`
-3. Add to Claude Desktop's `claude_desktop_config.json`:
+2. Install the server:
+   ```bash
+   cd bimcp
+   pip install -e .
+   ```
+3. Add to Claude Desktop's `claude_desktop_config.json` (use the **full path** to `bimcp/server.py`):
 
 ```json
 {
